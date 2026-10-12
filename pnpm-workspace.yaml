@@ -1,0 +1,5 @@
+# This is pnpm's dependency-script policy, not a multi-package workspace.
+allowBuilds:
+  esbuild: true
+  '@google/genai': false
+  protobufjs: false
