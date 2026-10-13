@@ -25,21 +25,31 @@ export function callUrls(callId: string) {
   callback.searchParams.set('token', issueToken(config.SESSION_SECRET, 'exotel-callback', callId, 86400));
   return { stream: stream.toString(), callback: callback.toString() };
 }
+/** Exotel expects local-format numbers with a leading 0 (e.g. 09625532959),
+ *  not E.164 (+919625532959). Strip the country code and prefix 0. */
+function toExotelPhone(phone: string): string {
+  // +91XXXXXXXXXX → 0XXXXXXXXXX (India)
+  if (phone.startsWith('+91') && phone.length === 13) return '0' + phone.slice(3);
+  // Generic: strip leading + and country code digit(s) — fall back to raw value if uncertain
+  const e164 = phone.match(/^\+\d{1,3}(\d{10})$/);
+  if (e164) return '0' + e164[1];
+  return phone;
+}
 export async function dial(call: Call, phone: string) {
   const urls = callUrls(call.id);
   // Direct streams use multipart; App Bazaar flow calls use the legacy URL-encoded form parser.
   const form = new FormData();
   const fields = {
-    From: phone, CallerId: config.EXOTEL_CALLER_ID,
+    From: toExotelPhone(phone), CallerId: config.EXOTEL_CALLER_ID,
     Record: 'false',
     TimeLimit: String(config.MAX_CALL_SECONDS), CustomField: call.id,
     StatusCallback: urls.callback,
   };
   for (const [name, value] of Object.entries(fields)) form.append(name, value);
   if (config.EXOTEL_FLOW_ID) {
-    form.append('Url', `http://my.exotel.com/${encodeURIComponent(config.EXOTEL_ACCOUNT_SID)}/exoml/start_voice/${config.EXOTEL_FLOW_ID}`);
+    const exomlHost = config.EXOTEL_REGION === 'in' ? 'my.exotel.in' : 'my.exotel.com';
+    form.append('Url', `http://${exomlHost}/exoml/start/${config.EXOTEL_FLOW_ID}`);
     form.append('CallType', 'trans');
-    form.append('StatusCallbackEvents', 'terminal');
   } else {
     form.append('StreamUrl', urls.stream);
     form.append('StreamType', 'bidirectional');
@@ -52,7 +62,11 @@ export async function dial(call: Call, phone: string) {
       body: config.EXOTEL_FLOW_ID ? new URLSearchParams([...form.entries()] as [string, string][]) : form,
       signal: AbortSignal.timeout(12000),
     });
-    if (!response.ok) throw new ProviderError(`Exotel rejected the call (HTTP ${response.status}). Check account credentials, balance, and AgentStream access.`, response.status >= 500);
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error('Exotel API error:', response.status, errorBody);
+      throw new ProviderError(`Exotel rejected the call (HTTP ${response.status}): ${errorBody}`, response.status >= 500);
+    }
     const parsed = responseSchema.safeParse(await response.json());
     if (!parsed.success) throw new ProviderError('Exotel returned an unexpected response. Reconcile the attempt before retrying.', true);
     return parsed.data.Call;
