@@ -2,12 +2,26 @@
 
 Local MVP: choose Gemini Live or Sarvam for the voice conversation; Exotel dials the test recipient and carries bidirectional audio. The provider, models, store name and language are configurable. Orders currently use **static, clearly marked sample data**, as requested.
 
+## Workspace
+
+```text
+apps/api/             Fastify API, calls, voice adapters, tests, developer checks
+apps/web/             Vite dashboard, browser audio, public microphone worklet
+packages/contracts/   Shared schemas, types, domain states, and model choices
+```
+
+Install and run commands from the repository root. Each package owns its dependencies and TypeScript configuration. The apps import `@orderline/contracts` through `workspace:*`; its compiled JavaScript and declarations are built before the apps by pnpm's dependency ordering. See [pnpm workspaces](https://pnpm.io/workspaces) and [recursive script ordering](https://pnpm.io/cli/recursive).
+
+The root `.env` belongs to the API. Relative `DATABASE_PATH` values resolve from the repository root, preserving `data/agent.sqlite`. The API serves built frontend files from `apps/web/dist` regardless of its working directory. API output is `apps/api/dist`; contracts output is `packages/contracts/dist`.
+
+API startup lives in `apps/api/src/app.ts`; route handlers live beside their capabilities in `modules/auth`, `modules/workspace`, `modules/calls`, and `modules/voice`. Shared HTTP security lives in `platform/http/security.ts`. In the browser, `main.ts` starts the workspace, `features` owns views and voice-practice handling, and `api/client.ts` owns HTTP requests. Shared request/response types live in `packages/contracts/src/api.ts`. See the [API module guide](apps/api/README.md) and [codebase organization](docs/codebase-design.md) for responsibilities and dependency rules.
+
 ## Run locally
 
 Requires Node.js 22.13+ and pnpm. A private `.env` has been created locally with the supplied Gemini key and randomly generated operator/session credentials. It is excluded from source control and readable only by its owner. Never paste this file into chat, logs, or issue reports.
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build
 pnpm start
 ```
@@ -16,13 +30,13 @@ Open **http://localhost:3000**. Sign in using `ADMIN_PASSWORD` from your local `
 
 **Voice practice** requires microphone access in a current browser on localhost or HTTPS. It uses the selected AI provider and may incur usage charges. It never places a phone call and never changes the sample order's decision. The developer `pnpm check:voice` check uses typed sample speech to exercise the same server session without a microphone.
 
-For development, `pnpm dev` watches the server and serves the latest built UI. For frontend hot reload, set `APP_ORIGIN=http://localhost:5173` in `.env`, restart `pnpm dev`, and run `pnpm dev:web` in a second terminal. Rebuild after frontend changes when using port 3000.
+For development, `pnpm dev` watches the API and shared contracts and serves the latest built UI. For frontend hot reload, set `APP_ORIGIN=http://localhost:5173` in `.env`, restart `pnpm dev`, and run `pnpm dev:web` in a second terminal. Rebuild after frontend changes when using port 3000. Alternatively, after setting `APP_ORIGIN=http://localhost:5173`, `pnpm dev:all` runs the API, frontend, and contracts watchers together. `pnpm dev:api` is an alias for the backend/contract development workflow.
 
 ## Choose Gemini or Sarvam
 
 Open **Agent & connections** and select **AI voice provider**. Gemini uses its Live model for the entire audio conversation. Sarvam uses realtime STT → conversation model → TTS, with interruption cancelling pending responses and clearing queued speech. This pipeline can have more turn latency than Gemini Live; benchmark it with representative Hindi/English audio.
 
-Add the corresponding key in the server `.env` and restart:
+Add the corresponding key in the repository-root `.env` and restart:
 
 ```dotenv
 VOICE_PROVIDER=gemini
@@ -38,7 +52,7 @@ Environment model values initialize new workspaces and fill missing settings in 
 
 Use a **Model APIs subscription key** from [Sarvam key management](https://dashboard.sarvam.ai/key-management) for `SARVAM_API_KEY`. A managed Voice Agents key is stored separately as `SARVAM_VOICE_AGENTS_API_KEY`; it does not configure this local STT/chat/TTS adapter. If the Model APIs reject a key, keep Gemini selected until a working model key is supplied.
 
-Calls announce “You are speaking with Gemini” or “You are speaking with Sarvam” in the introduction, following the call's saved provider selection and language. Sarvam synthesizes a scripted introduction; Gemini Live receives the same exact introduction as an instruction. The `TEMPORARY MODEL ANNOUNCEMENT` comment in `server/agent/prompt.ts` marks the provider text to remove later. Keep the AI assistant and test-call disclosure when removing the provider name.
+Calls announce “You are speaking with Gemini” or “You are speaking with Sarvam” in the introduction, following the call's saved provider selection and language. Sarvam synthesizes a scripted introduction; Gemini Live receives the same exact introduction as an instruction. The `TEMPORARY MODEL ANNOUNCEMENT` comment in `apps/api/src/modules/voice/prompt.ts` marks the provider text to remove later. Keep the AI assistant and test-call disclosure when removing the provider name.
 
 Sarvam's conversation, STT and TTS models can be selected separately. Synthesis uses the selected model's default voice and emits mono PCM16 at 24 kHz through the same browser/Exotel transport. STT uses 16 kHz PCM and server VAD. All credentials remain on the server. A configured key does not guarantee entitlement or quota: use voice practice to verify access. Sarvam integration tests mock the official protocol; live Sarvam verification requires your key and access to its realtime endpoint.
 
@@ -55,7 +69,7 @@ This MCP manages agents on Sarvam's hosted platform; it is separate from our loc
 
 ## Connect Exotel
 
-Set these in the **server `.env`** using credentials from your Exotel dashboard:
+Set these in the **repository-root `.env`** using credentials from your Exotel dashboard:
 
 ```dotenv
 EXOTEL_ACCOUNT_SID=your-account-sid

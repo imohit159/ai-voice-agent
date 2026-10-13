@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+coverage/
+data/
+.env*
+.cursor/
+.codex/
+.agents/
+.aws/
+pnpm-lock.yaml

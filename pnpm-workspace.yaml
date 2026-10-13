@@ -1,4 +1,7 @@
-# This is pnpm's dependency-script policy, not a multi-package workspace.
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
 allowBuilds:
   esbuild: true
   '@google/genai': false
