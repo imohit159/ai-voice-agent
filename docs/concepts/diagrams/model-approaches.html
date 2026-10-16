@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>One model or three</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #f5f5f5;
+      --color-ink:     #2d3142;
+      --color-muted:   #4f5d75;
+      --color-accent:  #bf4520;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Diagram Design</p>
+    <h1>One model or three</h1>
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 368" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="model-approaches-title model-approaches-desc">
+        <title id="model-approaches-title">One model or three</title>
+        <desc id="model-approaches-desc">Comparison of a single speech-to-speech model such as Gemini Live with a cascaded speech-to-text, LLM and text-to-speech chain such as Sarvam's.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#bf4520"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/></marker>
+        </defs>
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+        <rect x="32" y="40" width="896" height="112" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+        <rect x="44" y="44" width="164" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="126" y="53" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">SPEECH-TO-SPEECH · ONE MODEL</text>
+        <rect x="780" y="44" width="136" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="848" y="53" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">FASTEST · LEAST CONTROL</text>
+        <rect x="32" y="176" width="896" height="112" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+        <rect x="44" y="180" width="136" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="112" y="189" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">CASCADED · THREE MODELS</text>
+        <rect x="764" y="180" width="152" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="840" y="189" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">SWAP ANY PART · MORE DELAY</text>
+        <path d="M176,104 H232" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M728,104 H784" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="184" y="84" width="40" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="204" y="93" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">AUDIO</text>
+        <rect x="736" y="84" width="40" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="756" y="93" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">AUDIO</text>
+        <path d="M176,240 H232" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M360,240 H416" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M544,240 H600" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M728,240 H784" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="184" y="220" width="40" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="204" y="229" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">AUDIO</text>
+        <rect x="370" y="220" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="388" y="229" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">TEXT</text>
+        <rect x="554" y="220" width="36" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="572" y="229" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">TEXT</text>
+        <rect x="736" y="220" width="40" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="756" y="229" fill="#5a6580" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">AUDIO</text>
+        <rect x="48" y="72" width="128" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="48" y="72" width="128" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <rect x="56" y="78" width="20" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
+        <text x="66" y="87" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">IN</text>
+        <text x="112" y="106" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Caller audio</text>
+        <text x="112" y="122" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">phone line</text>
+        <rect x="232" y="72" width="496" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="232" y="72" width="496" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="240" y="78" width="20" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="250" y="87" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">AI</text>
+        <text x="480" y="106" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">One speech-to-speech model</text>
+        <text x="480" y="122" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Gemini Live · OpenAI Realtime</text>
+        <rect x="784" y="72" width="128" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="784" y="72" width="128" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <rect x="792" y="78" width="28" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
+        <text x="806" y="87" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">OUT</text>
+        <text x="848" y="106" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Agent voice</text>
+        <text x="848" y="122" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">back to caller</text>
+        <rect x="48" y="208" width="128" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="48" y="208" width="128" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <rect x="56" y="214" width="20" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
+        <text x="66" y="223" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">IN</text>
+        <text x="112" y="242" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Caller audio</text>
+        <text x="112" y="258" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">phone line</text>
+        <rect x="232" y="208" width="128" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="232" y="208" width="128" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="240" y="214" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="254" y="223" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STT</text>
+        <text x="296" y="242" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Speech-to-text</text>
+        <text x="296" y="258" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Saaras · Deepgram</text>
+        <rect x="416" y="208" width="128" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="416" y="208" width="128" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="424" y="214" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="438" y="223" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">LLM</text>
+        <text x="480" y="242" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">LLM</text>
+        <text x="480" y="258" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Sarvam · Gemini</text>
+        <rect x="600" y="208" width="128" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="600" y="208" width="128" height="64" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="608" y="214" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.40)" stroke-width="0.8"/>
+        <text x="622" y="223" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">TTS</text>
+        <text x="664" y="242" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Text-to-speech</text>
+        <text x="664" y="258" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Bulbul · Aura</text>
+        <rect x="784" y="208" width="128" height="64" rx="6" fill="#f5f5f5"/>
+        <rect x="784" y="208" width="128" height="64" rx="6" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <rect x="792" y="214" width="28" height="12" rx="2" fill="transparent" stroke="rgba(90,101,128,0.40)" stroke-width="0.8"/>
+        <text x="806" y="223" fill="#5a6580" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">OUT</text>
+        <text x="848" y="242" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Agent voice</text>
+        <text x="848" y="258" fill="#4f5d75" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">back to caller</text>
+        <line x1="48" y1="312" x2="912" y2="312" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+        <text x="48" y="328" fill="#4f5d75" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="48" y="336" width="16" height="12" rx="2" fill="rgba(79,93,117,0.10)" stroke="#5a6580" stroke-width="1"/>
+        <text x="72" y="345" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">Audio in / out</text>
+        <rect x="168" y="336" width="16" height="12" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="192" y="345" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif">AI model</text>
+        <text x="260" y="345" fill="#4f5d75" font-size="8.5" font-family="'Geist', system-ui, sans-serif" font-style="italic">Top: one model hears and speaks. Bottom: three models in a chain.</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

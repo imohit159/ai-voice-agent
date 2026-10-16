@@ -14,7 +14,7 @@ Install and run commands from the repository root. Each package owns its depende
 
 The root `.env` belongs to the API. Relative `DATABASE_PATH` values resolve from the repository root, preserving `data/agent.sqlite`. The API serves built frontend files from `apps/web/dist` regardless of its working directory. API output is `apps/api/dist`; contracts output is `packages/contracts/dist`.
 
-API startup lives in `apps/api/src/app.ts`; route handlers live beside their capabilities in `modules/auth`, `modules/workspace`, `modules/calls`, and `modules/voice`. Shared HTTP security lives in `platform/http/security.ts`. In the browser, `main.ts` starts the workspace, `features` owns views and voice-practice handling, and `api/client.ts` owns HTTP requests. Shared request/response types live in `packages/contracts/src/api.ts`. See the [API module guide](apps/api/README.md) and [codebase organization](docs/codebase-design.md) for responsibilities and dependency rules.
+API startup lives in `apps/api/src/app.ts`; route handlers live beside their capabilities in `modules/auth`, `modules/workspace`, `modules/calls`, and `modules/voice`. Shared HTTP security lives in `platform/http/security.ts`. In the browser, `main.ts` starts the workspace, `features` owns views and voice-practice handling, and `api/client.ts` owns HTTP requests. Shared request/response types live in `packages/contracts/src/api.ts`. See the [API module guide](apps/api/README.md) for responsibilities and dependency rules.
 
 ## Run locally
 
@@ -142,4 +142,4 @@ Rotate the Gemini key shared in chat before production use.
 - [Sarvam TTS](https://docs.sarvam.ai/api-reference/text-to-speech/convert)
 - [Gemini Live tool use](https://ai.google.dev/gemini-api/docs/live-api/tools)
 
-See [architecture and requirements](docs/architecture.md) for module boundaries and deployment decisions.
+See the [documentation index](docs/README.md) for the proposed voice-agent architecture and background on concepts and stack choices.
