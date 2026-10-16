@@ -30,6 +30,8 @@ export interface CallAttemptSummary {
   status: AttemptStatus;
   requestStatus: CallRequestStatus;
   outcome: CallOutcome | null;
+  outcomeSummary: string | null;
+  callbackAt: string | null;
   agent: AgentConfig | null;
   failureReason: string | null;
   startedAt: string;

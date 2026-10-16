@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import {
+  outcomeReportSchema,
   transcriptBatchSchema,
   voiceSessionClaimSchema,
   voiceSessionEndSchema,
@@ -50,6 +51,17 @@ export async function registerVoiceSessionRoutes(
           transcriptBatchSchema.parse(request.body),
         );
         return reply.code(204).send();
+      },
+    );
+    scope.post(
+      '/internal/v1/voice-sessions/:attemptId/outcome',
+      limits,
+      async (request) => {
+        const { attemptId } = params.parse(request.params);
+        return sessions.recordOutcome(
+          attemptId,
+          outcomeReportSchema.parse(request.body),
+        );
       },
     );
     scope.post(

@@ -316,6 +316,25 @@ export function createCallManagementRepository(db: DatabaseSync) {
           .run(at, attemptId).changes === 1
       );
     },
+    /** Records the conversation's outcome once; false if one is already recorded. */
+    setOutcome(
+      attemptId: string,
+      outcome: Pick<StoredAttempt, 'outcome' | 'outcomeSummary' | 'callbackAt'>,
+    ): boolean {
+      return (
+        db
+          .prepare(
+            `UPDATE call_attempts SET outcome=?, outcome_summary=?, callback_at=?
+              WHERE id=? AND outcome IS NULL`,
+          )
+          .run(
+            outcome.outcome,
+            outcome.outcomeSummary,
+            outcome.callbackAt,
+            attemptId,
+          ).changes === 1
+      );
+    },
     endVoiceSession(attemptId: string, at: string): void {
       db.prepare(
         `UPDATE call_attempts SET voice_session_ended_at=COALESCE(voice_session_ended_at, ?)
@@ -389,6 +408,8 @@ export function createCallManagementRepository(db: DatabaseSync) {
           status: attempt.status,
           requestStatus: row.request_status,
           outcome: attempt.outcome,
+          outcomeSummary: attempt.outcomeSummary,
+          callbackAt: attempt.callbackAt,
           agent: attempt.agentConfig,
           failureReason: attempt.failureReason,
           startedAt: attempt.startedAt,

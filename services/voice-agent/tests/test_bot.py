@@ -10,10 +10,9 @@ from voice_agent.node_client import AgentConfig
 
 
 def test_gemini_runs_as_a_single_realtime_stage(settings):
-    stages, context, pair = build_model_stage(session_context().agent, "prompt", settings)
-    assert stages[0] is pair.user()
-    assert isinstance(stages[1], GeminiLiveLLMService)
-    assert len(stages) == 2
+    stage = build_model_stage(session_context().agent, "prompt", settings)
+    assert stage.processors == [stage.pair.user(), stage.llm]
+    assert isinstance(stage.llm, GeminiLiveLLMService)
 
 
 def test_sarvam_runs_as_a_cascade_with_the_snapshotted_models(settings):
@@ -28,14 +27,17 @@ def test_sarvam_runs_as_a_cascade_with_the_snapshotted_models(settings):
             "storeName": "Demo Store",
         }
     )
-    stages, context, pair = build_model_stage(agent, "prompt", settings)
-    assert [type(s) for s in stages] == [
+    stage = build_model_stage(agent, "prompt", settings)
+    assert [type(s) for s in stage.processors] == [
         SarvamSTTService,
-        type(pair.user()),
+        type(stage.pair.user()),
         SarvamLLMService,
         SarvamTTSService,
     ]
+    assert stage.llm is stage.processors[2]
+    context = stage.pair.user().context
     assert context.get_messages()[0] == {"role": "system", "content": "prompt"}
+    assert [tool.name for tool in context.tools.standard_tools] == ["record_outcome", "end_call"]
 
 
 def test_missing_provider_key_is_reported_not_silently_substituted(settings):

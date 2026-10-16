@@ -5,10 +5,11 @@ transcript capture are common; only the model stage differs.
 """
 
 import asyncio
+from dataclasses import dataclass
 
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMRunFrame
+from pipecat.frames.frames import LLMRunFrame, TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -18,6 +19,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
+from pipecat.services.llm_service import LLMService
 from pipecat.services.sarvam.llm import SarvamLLMService
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
@@ -26,8 +28,9 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
 from voice_agent.config import Settings
-from voice_agent.node_client import AgentConfig, EndReason, SessionContext
+from voice_agent.node_client import AgentConfig, EndReason, SessionApi, SessionContext
 from voice_agent.prompts import KICKOFF_MESSAGE, build_system_prompt
+from voice_agent.tools import GOODBYES, TOOLS, register_tools
 from voice_agent.transcript import TranscriptRecorder
 
 # Teardown allowance after the call's own limit; Plivo's time_limit normally ends it first.
@@ -44,16 +47,24 @@ class ProviderNotConfigured(Exception):
     pass
 
 
-def build_model_stage(
-    agent: AgentConfig, system_prompt: str, settings: Settings
-) -> tuple[list[FrameProcessor], LLMContext, LLMContextAggregatorPair]:
-    """Returns the processors between transport input and output, plus the shared context."""
+@dataclass
+class ModelStage:
+    """The processors between transport input and output, and the pieces tools attach to."""
+
+    processors: list[FrameProcessor]
+    llm: LLMService
+    pair: LLMContextAggregatorPair
+    has_tts: bool = False
+
+
+def build_model_stage(agent: AgentConfig, system_prompt: str, settings: Settings) -> ModelStage:
     if agent.voice_provider == "gemini":
         if not settings.gemini_api_key:
             raise ProviderNotConfigured("GEMINI_API_KEY")
         llm = GeminiLiveLLMService(
             api_key=settings.gemini_api_key.get_secret_value(),
             system_instruction=system_prompt,
+            tools=TOOLS,
             settings=GeminiLiveLLMService.Settings(
                 model=agent.model, language=_SPEECH_LANGUAGE[agent.language]
             ),
@@ -62,7 +73,7 @@ def build_model_stage(
         # Gemini Live hears raw audio and detects turns server side; the pair
         # auto-detects realtime mode.
         pair = LLMContextAggregatorPair(context)
-        return [pair.user(), llm], context, pair
+        return ModelStage([pair.user(), llm], llm, pair)
 
     if not settings.sarvam_api_key:
         raise ProviderNotConfigured("SARVAM_API_KEY")
@@ -85,25 +96,42 @@ def build_model_stage(
         [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": KICKOFF_MESSAGE},
-        ]
+        ],
+        tools=TOOLS,
     )
     pair = LLMContextAggregatorPair(
         context, user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer())
     )
-    return [stt, pair.user(), llm, tts], context, pair
+    return ModelStage([stt, pair.user(), llm, tts], llm, pair, has_tts=True)
 
 
 async def run_conversation(
     transport: BaseTransport,
     session: SessionContext,
     settings: Settings,
+    node: SessionApi,
+    session_token: str,
     recorder: TranscriptRecorder,
 ) -> EndReason:
-    """Runs until the caller leaves, the time limit passes, or the pipeline fails."""
-    stages, _context, pair = build_model_stage(
-        session.agent, build_system_prompt(session), settings
+    """Runs until the agent ends the call, the caller leaves, the time limit passes, or it fails."""
+    stage = build_model_stage(session.agent, build_system_prompt(session), settings)
+
+    async def say(text: str) -> None:
+        await stage.llm.push_frame(TTSSpeakFrame(text))
+
+    state = register_tools(
+        stage.llm,
+        node,
+        session.attempt_id,
+        session_token,
+        # Realtime models speak for themselves; only the cascade has a TTS stage.
+        say=say if stage.has_tts else None,
+        goodbye=GOODBYES[session.agent.language],
     )
-    pipeline = Pipeline([transport.input(), *stages, transport.output(), pair.assistant()])
+    pair = stage.pair
+    pipeline = Pipeline(
+        [transport.input(), *stage.processors, transport.output(), pair.assistant()]
+    )
     worker = PipelineWorker(
         pipeline,
         params=PipelineParams(enable_metrics=True),
@@ -120,6 +148,8 @@ async def run_conversation(
     @pair.assistant().event_handler("on_assistant_turn_stopped")
     async def _agent_said(_aggregator, message):
         recorder.add("agent", message.content)
+        if message.content.strip():
+            state.agent_spoke()
 
     @transport.event_handler("on_client_connected")
     async def _connected(_transport, _client):
@@ -135,7 +165,7 @@ async def run_conversation(
         await asyncio.wait_for(
             runner.run(worker), session.max_call_seconds + _SESSION_GRACE_SECONDS
         )
-        return "disconnected"
+        return "completed" if state.ended_by_agent else "disconnected"
     except TimeoutError:
         await worker.cancel(reason="session time limit")
         return "timeout"

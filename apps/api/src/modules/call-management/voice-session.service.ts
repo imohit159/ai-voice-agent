@@ -1,4 +1,9 @@
+import {
+  MAX_SCHEDULE_AHEAD_DAYS,
+  USE_CASE_OUTCOMES,
+} from '@orderline/contracts/integration';
 import type {
+  OutcomeReport,
   TranscriptBatch,
   VoiceSessionClaim,
   VoiceSessionContext,
@@ -91,6 +96,60 @@ export function createVoiceSessions({
     repository.insertTranscript(attempt.id, batch.entries, now().toISOString());
   }
 
+  /**
+   * Records what the customer decided. The report is model output, so every
+   * rule is enforced here rather than trusted from the conversation.
+   */
+  function recordOutcome(attemptId: string, report: OutcomeReport) {
+    const attempt = authorize(attemptId, report.sessionToken);
+    if (
+      attempt.status !== 'in_progress' ||
+      !attempt.voiceSessionStartedAt ||
+      attempt.voiceSessionEndedAt
+    )
+      throw new CallManagementError(409, 'The call is no longer active.');
+    const request = repository.requestById(attempt.callRequestId)!;
+    if (!USE_CASE_OUTCOMES[request.useCase].includes(report.outcome))
+      throw new CallManagementError(
+        422,
+        `Outcome ${report.outcome} is not allowed for this call.`,
+      );
+    const callbackAt = report.callbackAt ?? null;
+    if (callbackAt) {
+      if (report.outcome !== 'callback_requested')
+        throw new CallManagementError(
+          422,
+          'callbackAt is only valid for callback_requested.',
+        );
+      const at = Date.parse(callbackAt);
+      const nowMs = now().getTime();
+      if (at <= nowMs || at > nowMs + MAX_SCHEDULE_AHEAD_DAYS * 86_400_000)
+        throw new CallManagementError(
+          422,
+          `callbackAt must be in the future and within ${MAX_SCHEDULE_AHEAD_DAYS} days.`,
+        );
+    }
+    const recorded = repository.setOutcome(attempt.id, {
+      outcome: report.outcome,
+      outcomeSummary: report.summary,
+      callbackAt: callbackAt && new Date(callbackAt).toISOString(),
+    });
+    if (!recorded) {
+      // A repeated report of the same decision is harmless; a different one is not.
+      if (repository.attemptById(attempt.id)!.outcome !== report.outcome)
+        throw new CallManagementError(
+          409,
+          'A different outcome is already recorded for this call.',
+        );
+      return { outcome: report.outcome };
+    }
+    log.info(
+      { attemptId: attempt.id, outcome: report.outcome },
+      'Call outcome recorded',
+    );
+    return { outcome: report.outcome };
+  }
+
   /** Idempotent. Phone attempts finish from Plivo's hangup callback; practice finishes here. */
   function end(attemptId: string, body: VoiceSessionEnd) {
     const attempt = authorize(attemptId, body.sessionToken);
@@ -108,7 +167,7 @@ export function createVoiceSessions({
     );
   }
 
-  return { claim, appendTranscript, end };
+  return { claim, appendTranscript, recordOutcome, end };
 }
 
 export type VoiceSessions = ReturnType<typeof createVoiceSessions>;

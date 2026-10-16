@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AGENT_LANGUAGES, VOICE_PROVIDERS } from './models.js';
-import type { CallRequest } from './integration.js';
+import { CALL_OUTCOMES, type CallRequest } from './integration.js';
 
 // Internal contract between the API (sole database writer) and the Pipecat
 // voice agent. services/voice-agent/src/voice_agent/node_client.py mirrors it.
@@ -71,6 +71,20 @@ export const transcriptBatchSchema = z
   })
   .strict();
 export type TranscriptBatch = z.infer<typeof transcriptBatchSchema>;
+
+/**
+ * An outcome proposed by the conversation. It is untrusted model output: the
+ * API validates it against the use case before recording it.
+ */
+export const outcomeReportSchema = z
+  .object({
+    sessionToken,
+    outcome: z.enum(CALL_OUTCOMES),
+    summary: z.string().trim().min(3).max(500),
+    callbackAt: z.iso.datetime({ offset: true }).nullable().optional(),
+  })
+  .strict();
+export type OutcomeReport = z.infer<typeof outcomeReportSchema>;
 
 export const voiceSessionEndSchema = z
   .object({

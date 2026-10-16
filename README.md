@@ -2,7 +2,7 @@
 
 An outbound voice agent that calls customers from an Indian number, speaks Hindi and English, and returns a structured result to the client's business system. The target design is in the [architecture brief](docs/architecture/customer-care-voice-agent-architecture.md); the agreed decisions and build stages are in [implementation decisions](docs/architecture/implementation-decisions.md).
 
-**Current state (stage 4 of 7):** the business system requests calls through a signed API; the API schedules them within calling hours, dials through **Plivo**, and retries unanswered calls. When a customer answers, Plivo streams the audio to the **Pipecat voice agent**, which holds the conversation with Gemini Live or Sarvam and reports the transcript back. Browser practice uses the same bot over WebRTC. Outcome recording, end-of-call handling and backend action validation arrive in stage 5.
+**Current state (stage 5 of 7):** the business system requests calls through a signed API; the API schedules them within calling hours, dials through **Plivo**, and retries unanswered calls. When a customer answers, Plivo streams the audio to the **Pipecat voice agent**, which discloses that it is an AI, checks it is speaking to the right person before sharing any order detail, reads the order back and asks for a decision. It records one of six outcomes, which the API validates before it reaches the business system, then says goodbye and hangs up. Browser practice runs the same bot over WebRTC.
 
 ## Workspace
 
@@ -108,7 +108,7 @@ The project includes `.cursor/mcp.json` with the official remote server `https:/
 
 ## Before production
 
-Planned in later stages: the order-confirmation conversation with outcomes, end-of-call and backend action validation (5), the role-based dashboard with transcript audit (6), and Docker Compose deployment with Caddy, TLS, retention jobs and backups (7). Agree transcript retention, calling permissions and the business system's real endpoints before handling customer data.
+Planned in later stages: the role-based dashboard with transcript audit (6), and Docker Compose deployment with Caddy, TLS, retention jobs, backups and latency monitoring (7). Known issues and live test results are in the [implementation decisions](docs/architecture/implementation-decisions.md). Agree transcript retention, calling permissions and the business system's real endpoints before handling customer data.
 
 ## Reference documentation
 

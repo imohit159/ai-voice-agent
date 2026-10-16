@@ -5,7 +5,7 @@ only claims a session, reports what was said and reports when it ended.
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Protocol
 
 import aiohttp
 from pydantic import BaseModel, ConfigDict, Field
@@ -69,9 +69,38 @@ class TranscriptEntry(_Model):
 
 
 class NodeApiError(Exception):
-    def __init__(self, status: int):
+    def __init__(self, status: int, detail: str = ""):
         super().__init__(f"Node API rejected the request (HTTP {status})")
         self.status = status
+        # Node's validation message; safe to show the model so it can correct itself.
+        self.detail = detail
+
+
+class SessionApi(Protocol):
+    """What a conversation needs from the API; NodeClient implements it."""
+
+    async def claim(
+        self,
+        attempt_id: str,
+        session_token: str,
+        transport: Transport,
+        provider_leg_id: str | None = None,
+    ) -> "SessionContext": ...
+
+    async def append_transcript(
+        self, attempt_id: str, session_token: str, entries: list["TranscriptEntry"]
+    ) -> None: ...
+
+    async def record_outcome(
+        self,
+        attempt_id: str,
+        session_token: str,
+        outcome: str,
+        summary: str,
+        callback_at: str | None,
+    ) -> None: ...
+
+    async def end(self, attempt_id: str, session_token: str, reason: EndReason) -> None: ...
 
 
 class NodeClient:
@@ -89,7 +118,11 @@ class NodeClient:
             allow_redirects=False,
         ) as response:
             if response.status >= 400:
-                raise NodeApiError(response.status)
+                try:
+                    detail = (await response.json(content_type=None) or {}).get("error", "")
+                except ValueError:
+                    detail = ""
+                raise NodeApiError(response.status, str(detail))
             return await response.json() if response.status != 204 else None
 
     async def claim(
@@ -117,6 +150,19 @@ class NodeClient:
                 ],
             },
         )
+
+    async def record_outcome(
+        self,
+        attempt_id: str,
+        session_token: str,
+        outcome: str,
+        summary: str,
+        callback_at: str | None,
+    ) -> None:
+        body: dict = {"sessionToken": session_token, "outcome": outcome, "summary": summary}
+        if callback_at:
+            body["callbackAt"] = callback_at
+        await self._post(f"/{attempt_id}/outcome", body)
 
     async def end(self, attempt_id: str, session_token: str, reason: EndReason) -> None:
         await self._post(f"/{attempt_id}/end", {"sessionToken": session_token, "reason": reason})

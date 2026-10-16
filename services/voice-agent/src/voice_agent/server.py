@@ -9,7 +9,7 @@ import asyncio
 import hmac
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Literal, Protocol
+from typing import Literal
 
 import aiohttp
 from fastapi import FastAPI, Header, HTTPException, WebSocket
@@ -34,9 +34,8 @@ from voice_agent.node_client import (
     EndReason,
     NodeApiError,
     NodeClient,
+    SessionApi,
     SessionContext,
-    TranscriptEntry,
-    Transport,
 )
 from voice_agent.plivo import InvalidStreamStart, read_start, verify_v3_get_signature
 from voice_agent.transcript import TranscriptRecorder
@@ -44,22 +43,6 @@ from voice_agent.transcript import TranscriptRecorder
 # WebSocket close codes: policy violation, and server unable to serve.
 _POLICY_VIOLATION = 1008
 _UNAVAILABLE = 1011
-
-
-class SessionApi(Protocol):
-    async def claim(
-        self,
-        attempt_id: str,
-        session_token: str,
-        transport: Transport,
-        provider_leg_id: str | None = None,
-    ) -> SessionContext: ...
-
-    async def append_transcript(
-        self, attempt_id: str, session_token: str, entries: list[TranscriptEntry]
-    ) -> None: ...
-
-    async def end(self, attempt_id: str, session_token: str, reason: EndReason) -> None: ...
 
 
 class PracticeOffer(BaseModel):
@@ -100,7 +83,9 @@ def create_app(settings: Settings, node: SessionApi | None = None) -> FastAPI:
         recorder = TranscriptRecorder(api["node"], session.attempt_id, token)
         reason: EndReason = "error"
         try:
-            reason = await run_conversation(transport, session, settings, recorder)
+            reason = await run_conversation(
+                transport, session, settings, api["node"], token, recorder
+            )
         except ProviderNotConfigured as missing:
             logger.error(f"Cannot serve attempt {session.attempt_id}: {missing} is not set")
         finally:

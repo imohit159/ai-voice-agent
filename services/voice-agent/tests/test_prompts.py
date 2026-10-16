@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from conftest import session_context
 
 from voice_agent.prompts import build_system_prompt, format_rupees
@@ -20,3 +22,11 @@ def test_prompt_verifies_identity_before_order_details_and_follows_language():
     assert "practice session" not in prompt
     practice = build_system_prompt(session_context(isPractice=True, transport="webrtc"))
     assert "practice session" in practice
+
+
+def test_prompt_orders_the_tools_and_grounds_time_in_ist():
+    prompt = build_system_prompt(session_context(), now=datetime(2026, 10, 16, 6, 0, tzinfo=UTC))
+    assert "Friday, 16 October 2026, 11:30 India time" in prompt
+    assert prompt.index("call record_outcome") < prompt.index("call end_call")
+    assert "record wrong_person" in prompt
+    assert "Never say a cancellation or change is done" in prompt

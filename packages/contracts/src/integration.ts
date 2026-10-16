@@ -54,6 +54,11 @@ export const SIGNATURE_TOLERANCE_SECONDS = 300;
 
 export type UseCase = (typeof USE_CASES)[number];
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
+
+/** The outcomes a conversation for each use case may record. */
+export const USE_CASE_OUTCOMES: Record<UseCase, readonly CallOutcome[]> = {
+  order_confirmation: CALL_OUTCOMES,
+};
 export type CallRequestStatus = (typeof CALL_REQUEST_STATUSES)[number];
 export type AttemptResult = (typeof ATTEMPT_RESULTS)[number];
 export type AttemptStatus = (typeof ATTEMPT_STATUSES)[number];

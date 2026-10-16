@@ -398,3 +398,115 @@ test('unconnected and abandoned practice sessions release their slot', async () 
     'practice never reaches the business system',
   );
 });
+
+test('a recorded outcome is validated, immutable and delivered with the result', async () => {
+  const h = harness({ provider: 'plivo' });
+  h.calls.acceptCallRequest(callRequest());
+  await h.calls.runSchedule();
+  const { attemptId, providerCallId } = h.provider.dialled[0]!;
+  const sessionToken = h.sessionToken(attemptId);
+  const report = (body: Record<string, unknown>) =>
+    h.sessions.recordOutcome(attemptId, {
+      sessionToken,
+      outcome: 'confirmed',
+      summary: 'Customer confirmed the order.',
+      ...body,
+    });
+
+  h.calls.applyProviderEvent({
+    attemptId,
+    providerCallId,
+    providerLegId: 'leg-1',
+    status: 'in_progress',
+  });
+  assert.throws(
+    () => report({}),
+    { statusCode: 409 },
+    'no session claimed yet',
+  );
+  h.sessions.claim({
+    attemptId,
+    sessionToken,
+    transport: 'plivo',
+    providerLegId: 'leg-1',
+  });
+
+  assert.throws(
+    () => report({ callbackAt: '2026-10-16T12:00:00+05:30' }),
+    { statusCode: 422 },
+    'callbackAt needs callback_requested',
+  );
+  assert.throws(
+    () =>
+      report({
+        outcome: 'callback_requested',
+        callbackAt: '2026-10-16T08:00:00+05:30',
+      }),
+    { statusCode: 422 },
+    'callbackAt in the past',
+  );
+  assert.throws(
+    () =>
+      report({
+        outcome: 'callback_requested',
+        callbackAt: '2026-10-30T12:00:00+05:30',
+      }),
+    { statusCode: 422 },
+    'callbackAt beyond the window',
+  );
+  assert.throws(
+    () =>
+      h.sessions.recordOutcome(attemptId, {
+        sessionToken: h.sessionToken(crypto.randomUUID()),
+        outcome: 'confirmed',
+        summary: 'x x x',
+      }),
+    { statusCode: 403 },
+  );
+
+  assert.deepEqual(report({}), { outcome: 'confirmed' });
+  assert.deepEqual(
+    report({}),
+    { outcome: 'confirmed' },
+    'repeat is idempotent',
+  );
+  assert.throws(() => report({ outcome: 'cancel_requested' }), {
+    statusCode: 409,
+  });
+
+  h.calls.applyProviderEvent({
+    attemptId,
+    providerCallId,
+    status: 'completed',
+  });
+  const [delivery] = h.outbox();
+  assert.deepEqual(delivery!.payload.outcome, {
+    code: 'confirmed',
+    summary: 'Customer confirmed the order.',
+    callbackAt: null,
+  });
+  assert.throws(() => report({}), { statusCode: 409 }, 'call is over');
+});
+
+test('a callback request carries its normalized time', async () => {
+  const h = harness();
+  const practice = await h.calls.startPracticeSession({
+    customer: callRequest().customer,
+    order: callRequest().order,
+  });
+  const sessionToken = h.sessionToken(practice.id);
+  h.sessions.claim({
+    attemptId: practice.id,
+    sessionToken,
+    transport: 'webrtc',
+  });
+  h.sessions.recordOutcome(practice.id, {
+    sessionToken,
+    outcome: 'callback_requested',
+    summary: 'Customer asked to be called tomorrow evening.',
+    callbackAt: '2026-10-17T18:00:00+05:30',
+  });
+  const attempt = h.repository.attemptById(practice.id)!;
+  assert.equal(attempt.outcome, 'callback_requested');
+  assert.equal(attempt.callbackAt, '2026-10-17T12:30:00.000Z');
+});

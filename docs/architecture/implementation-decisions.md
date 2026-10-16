@@ -51,11 +51,26 @@ Each table is added in the stage that first uses it.
 2. **Call management.** ✅ `call_attempts` and `result_deliveries` tables; `call-management` module (scheduler with calling hours, retry backoff, concurrency limit, restart recovery, reconciliation) behind a telephony port with a simulated provider; transactional result outbox with signed, retried delivery; mock business system result receiver.
 3. **Plivo.** ✅ Plivo telephony adapter (dial, V3-signed ring/answer/hangup callbacks, hangup-cause mapping, call-record reconciliation), `<Stream>` answer XML with a short-lived voice-session token, Plivo as the default provider with startup validation. Exotel removed; the legacy voice module now serves browser practice only.
 4. **Pipecat service.** ✅ Python service (`services/voice-agent`, Pipecat 1.12) with the Plivo stream (V3-verified) and WebRTC practice, both AI stages sharing one bot, internal session API (claim once, transcript batches, end) with Node as sole writer, `transcript_entries` table, voice-agent readiness gating for dialling. Legacy Node voice module, calls module and browser worklet removed; AI keys moved to the voice agent only.
-5. **Order confirmation.** Conversation plan, identity check, outcome tool, backend action validation.
+5. **Order confirmation.** ✅ Conversation plan (AI disclosure, identity check before any order detail, read-back, decision), `record_outcome` and `end_call` tools, API validation of every reported outcome (allowed for the use case, callback time only for `callback_requested` and within 7 days, one immutable outcome per attempt), outcome delivered in the result, guaranteed spoken goodbye before the cascade hangs up.
 6. **Dashboard.** `users` and `audit_events` tables; React app with roles, call history, transcripts, delivery status, practice calls.
 7. **Deployment.** Docker Compose, Caddy, secrets, retention job, backups, end-to-end and concurrency tests.
 
-## Known issues to resolve in stage 5
+## Stage 5 acceptance results (16 October 2026)
 
-- **Sarvam turn splitting.** In live testing, a customer sentence with a comma pause ("हाँ जी, मैं … बोल रहा हूँ") was split into two turns and the agent answered the fragment. Tune VAD stop time and smart-turn settings against representative Hindi/Hinglish audio, and measure response delay for both AI stages.
+Scripted practice conversations over WebRTC with synthesized Hindi customer speech, against the real providers. Response delay is measured from the end of the customer's audio to the agent's first audio, as received by the client.
+
+| Scenario                     | Gemini Live (`gemini-3.8-live`)                | Sarvam cascade (`sarvam-105b-conversations`)  |
+| ---------------------------- | ---------------------------------------------- | --------------------------------------------- |
+| Confirm                      | ✅ `confirmed`, goodbye, hung up (4 of 4 runs) | ✅ `confirmed`, goodbye, hung up              |
+| Wrong number                 | ✅ `wrong_person`, no order details disclosed  | ✅ `wrong_person`, no order details disclosed |
+| Call back "kal shaam 6 baje" | ✅ `callback_requested`, 17 Oct 18:00 IST      | ✅ `callback_requested`, 17 Oct 18:00 IST     |
+| Response delay               | 1.6–3.2 s                                      | 1.1–1.9 s when the reply is one turn          |
+
+Not yet verified: the same flow over a real Plivo call, including the agent-initiated hang-up through Plivo's API.
+
+## Known issues
+
+- **Sarvam speech segmentation.** A pause inside a short reply ("हाँ जी, बोलिए") often splits it into two turns, and once the opening "हाँ जी" was not transcribed, so the agent re-asked for identity. The conversation still reached the right outcome, but it adds a turn. Tune Sarvam STT segmentation (`first_turn_min_speech_frames`, `negative_frames_count`) and the turn strategy against recorded customer audio, with Sarvam's guidance. Gemini Live handled the same audio as one turn.
+- **No trustworthy server-side latency metric yet.** Pipecat's `UserBotLatencyObserver` reported 3–4× the delay customers actually heard when replies split into fragments, and enabling local VAD for Gemini (which it needs) broke Gemini's turn handling in testing. Do not add local VAD to the Gemini pipeline. Server-side latency observability moves to stage 7 and must be validated against client-measured audio.
 - **Slow teardown mid-reply.** Hanging up while Gemini is generating can delay the session end by up to ~30 s while Pipecat waits for the in-flight response. Phone attempts finish from Plivo's hangup callback regardless; practice attempts finish late.
+- **Customer hangs up before a decision.** The attempt is `answered` with no outcome; the business system should treat that as follow-up.
