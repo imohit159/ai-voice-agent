@@ -19,7 +19,8 @@
     "check": "pnpm --filter @orderline/contracts build && pnpm -r check",
     "test": "pnpm --filter @orderline/contracts build && pnpm --filter @orderline/api test",
     "check:gemini": "pnpm --filter @orderline/contracts build && pnpm --filter @orderline/api check:gemini",
-    "check:voice": "pnpm --filter @orderline/contracts build && pnpm --filter @orderline/api check:voice"
+    "check:voice": "pnpm --filter @orderline/contracts build && pnpm --filter @orderline/api check:voice",
+    "mock:business": "pnpm --filter @orderline/contracts build && pnpm --filter @orderline/api mock:business"
   },
   "devDependencies": {
     "prettier": "3.9.10"

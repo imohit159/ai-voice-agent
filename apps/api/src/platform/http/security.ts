@@ -46,10 +46,12 @@ export function registerHttpSecurity(
     }
   });
   app.setErrorHandler((error, _request, reply) => {
+    // Field paths only: issue messages can echo submitted values.
     if (error instanceof ZodError)
-      return reply
-        .code(400)
-        .send({ error: 'Invalid request. Check the supplied fields.' });
+      return reply.code(400).send({
+        error: 'Invalid request. Check the supplied fields.',
+        fields: [...new Set(error.issues.map((i) => i.path.join('.')))],
+      });
     const status =
       error instanceof Error &&
       'statusCode' in error &&

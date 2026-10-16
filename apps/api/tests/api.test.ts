@@ -563,3 +563,23 @@ test('selected provider controls readiness and missing Sarvam credentials never 
     await app.close();
   }
 });
+test('the integration endpoint is disabled without a secret and does not change dashboard JSON parsing', async () => {
+  const app = await createApp({ store: makeStore(), logging: false });
+  const disabled = await app.inject({
+    method: 'POST',
+    url: '/integrations/v1/call-requests',
+    headers: { 'content-type': 'application/json', 'x-signature': 't=1,v1=0' },
+    payload: '{}',
+  });
+  assert.equal(disabled.statusCode, 503);
+  const headers = await login(app);
+  const invalid = await app.inject({
+    method: 'POST',
+    url: '/api/calls',
+    headers,
+    payload: { orderId: 'DEMO-1001', mode: 'browser' },
+  });
+  assert.equal(invalid.statusCode, 400);
+  assert.deepEqual(invalid.json().fields, ['requestKey']);
+  await app.close();
+});

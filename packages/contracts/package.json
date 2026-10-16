@@ -26,6 +26,10 @@
     "./models": {
       "types": "./dist/models.d.ts",
       "import": "./dist/models.js"
+    },
+    "./integration": {
+      "types": "./dist/integration.d.ts",
+      "import": "./dist/integration.js"
     }
   }
 }

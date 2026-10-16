@@ -10,7 +10,8 @@
     "check": "node scripts/check-boundaries.mjs && tsc --noEmit",
     "test": "node --import tsx --test --test-isolation=none tests/*.test.ts",
     "check:gemini": "node --import tsx scripts/check-gemini.ts",
-    "check:voice": "node --import tsx scripts/check-voice.ts"
+    "check:voice": "node --import tsx scripts/check-voice.ts",
+    "mock:business": "node --import tsx scripts/mock-business-system.ts"
   },
   "dependencies": {
     "@orderline/contracts": "workspace:*",

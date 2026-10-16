@@ -27,6 +27,7 @@ import {
   type CallingOptions,
 } from './modules/calls/module.js';
 import { attachVoice, registerVoiceRoutes } from './modules/voice/index.js';
+import { registerIntegrationsModule } from './modules/integrations/module.js';
 import { webDist } from './config/paths.js';
 
 export async function createApp(
@@ -86,6 +87,7 @@ export async function createApp(
   registerWorkspaceRoutes(app, workspace);
   registerCallsModule(app, store, options);
   registerVoiceRoutes(app, store, session, options.voice ?? attachVoice);
+  await registerIntegrationsModule(app, store.db);
 
   if (existsSync(resolve(webDist, 'index.html'))) {
     await app.register(staticFiles, { root: webDist, index: 'index.html' });

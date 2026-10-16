@@ -1,8 +1,7 @@
-import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import type { DatabaseSync } from 'node:sqlite';
 import type { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { openDatabase } from './database.js';
 import {
   ACTIVE_STATUSES,
   TERMINAL_STATUSES,
@@ -16,26 +15,15 @@ import {
 } from '@orderline/contracts';
 
 export class Store {
-  private db: DatabaseSync;
+  // Exposed so new module repositories share the connection until the legacy
+  // demo store is retired; the store still owns closing it.
+  readonly db: DatabaseSync;
   constructor(
     path: string,
     settings: z.input<typeof settingsSchema>,
     phone: string,
   ) {
-    if (path !== ':memory:')
-      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    this.db = new DatabaseSync(path);
-    this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
-      CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS calls (id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id),
-        mode TEXT NOT NULL, status TEXT NOT NULL, request_key TEXT UNIQUE NOT NULL,
-        claimed INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL);
-      CREATE UNIQUE INDEX IF NOT EXISTS one_live_phone_call ON calls(order_id)
-        WHERE mode='phone' AND status IN ('queued','connecting','active','unknown');
-      CREATE TABLE IF NOT EXISTS transcripts (id INTEGER PRIMARY KEY, call_id TEXT NOT NULL REFERENCES calls(id),
-        role TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS transcript_call ON transcripts(call_id, id);`);
+    this.db = openDatabase(path);
     const sample: Order = {
       id: 'DEMO-1001',
       customerName: 'Test Customer',

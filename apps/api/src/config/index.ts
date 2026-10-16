@@ -43,6 +43,10 @@ const schema = z.object({
     .transform((v) => v === 'true'),
   MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(5).default(2),
   MAX_CALL_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
+  // Blank disables the business-system endpoint; it then answers 503.
+  INTEGRATION_INBOUND_SECRET: z
+    .union([z.literal(''), z.string().min(32)])
+    .default(''),
 });
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
