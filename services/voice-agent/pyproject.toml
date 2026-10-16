@@ -1,0 +1,39 @@
+[project]
+name = "voice-agent"
+version = "0.1.0"
+description = "Pipecat voice agent: Plivo phone calls and browser practice sessions"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "pipecat-ai[google,sarvam,silero,webrtc,websocket]==1.12.0",
+  "uvicorn==0.38.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.4.2",
+  "pytest-asyncio==1.2.0",
+  "ruff==0.14.2",
+]
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voice_agent"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S"]
+ignore = ["S101"]
+
+[tool.ruff.lint.per-file-ignores]
+# Test fixtures use fake credentials by design.
+"tests/**" = ["S105", "S106"]

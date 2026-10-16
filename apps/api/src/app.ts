@@ -2,11 +2,11 @@ import Fastify, { LogController } from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import formbody from '@fastify/formbody';
-import websocket from '@fastify/websocket';
 import staticFiles from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { config, defaultSettings, voiceReadiness } from './config/index.js';
+import type { AgentConfig } from '@orderline/contracts/voice';
+import { config, defaultSettings } from './config/index.js';
 import { Store } from './platform/persistence/store.js';
 import { registerHttpSecurity } from './platform/http/security.js';
 import {
@@ -17,17 +17,17 @@ import {
   createWorkspace,
   registerWorkspaceRoutes,
 } from './modules/workspace/index.js';
-import { registerCallsModule } from './modules/calls/module.js';
-import { attachVoice, registerVoiceRoutes } from './modules/voice/index.js';
 import { startCallManagement } from './modules/call-management/module.js';
 import { startIntegrations } from './modules/integrations/module.js';
 import { webDist } from './config/paths.js';
 
+type CallManagementOptions = Parameters<typeof startCallManagement>[2];
+
 export async function createApp(
   options: {
     store?: Store;
-    voice?: typeof attachVoice;
-    telephony?: Parameters<typeof startCallManagement>[2]['telephony'];
+    telephony?: CallManagementOptions['telephony'];
+    voiceAgent?: CallManagementOptions['voiceAgent'];
     logging?: boolean;
   } = {},
 ) {
@@ -43,76 +43,85 @@ export async function createApp(
             redact: ['req.url', 'req.headers', 'err.message', 'err.stack'],
           },
     logController: new LogController({ disableRequestLogging: true }),
-    bodyLimit: 16384,
+    // Practice SDP offers are larger than any other request body.
+    bodyLimit: 131072,
   });
   await app.register(cookie);
   await app.register(rateLimit, { max: 150, timeWindow: '1 minute' });
   await app.register(formbody);
-  await app.register(websocket, {
-    options: { maxPayload: 150000 },
-    errorHandler: (_error, socket) => {
-      app.log.warn('Voice socket failed');
-      socket.terminate();
-    },
-    preClose: (done) => {
-      // Close media sessions while the store is still open; their close handlers persist final state.
-      for (const socket of app.websocketServer.clients) socket.terminate();
-      app.websocketServer.close(done);
-    },
-  });
   const session = createOperatorSession();
   registerHttpSecurity(app, session);
-  const workspace = createWorkspace({
-    store,
-    voiceReadiness,
-    connections: {
-      geminiConfigured: Boolean(config.GEMINI_API_KEY),
-      sarvamConfigured: Boolean(config.SARVAM_API_KEY),
-      telephony: {
-        provider: options.telephony ? 'test' : config.TELEPHONY_PROVIDER,
-        callerId: config.PLIVO_FROM_NUMBER || null,
-      },
-      maxCallSeconds: config.MAX_CALL_SECONDS,
-      maxConcurrentCalls: config.MAX_CONCURRENT_CALLS,
-    },
-  });
   app.get('/health', async () => ({ status: 'ok' }));
+
+  // The attempt keeps this snapshot for its whole life, whatever the dashboard changes later.
+  const agentConfig = (): AgentConfig => {
+    const settings = store.settings();
+    const shared = {
+      language: settings.language,
+      storeName: settings.storeName,
+    };
+    return settings.voiceProvider === 'gemini'
+      ? { voiceProvider: 'gemini', model: settings.geminiModel, ...shared }
+      : {
+          voiceProvider: 'sarvam',
+          model: settings.sarvamModel,
+          sttModel: settings.sarvamSttModel,
+          ttsModel: settings.sarvamTtsModel,
+          ...shared,
+        };
+  };
+  const practiceOrder = () => {
+    const order = store.order('DEMO-1001')!;
+    return {
+      customer: {
+        reference: 'practice',
+        name: order.customerName,
+        phone: order.phone,
+      },
+      order: {
+        id: order.id,
+        items: [{ name: order.items, quantity: 1 }],
+        total: { amountMinor: order.amount * 100, currency: 'INR' as const },
+        paymentMethod: 'cash_on_delivery' as const,
+        deliveryAddress: order.address,
+      },
+    };
+  };
+
   // Register on the same scope so every route shares authentication and error handling.
   registerAuthRoutes(app, session);
-  registerWorkspaceRoutes(app, workspace);
-  registerCallsModule(app, store);
-  registerVoiceRoutes(app, store, session, options.voice ?? attachVoice);
   const integrations = startIntegrations(app, store.db);
-  const callManagement = startCallManagement(app, store.db, {
+  const callManagement = await startCallManagement(app, store.db, {
     onAttemptFinished: integrations.recordAttemptResult,
-    aiConfig: () => {
-      const {
-        voiceProvider,
-        geminiModel,
-        sarvamModel,
-        sarvamSttModel,
-        sarvamTtsModel,
-      } = store.settings();
-      return voiceProvider === 'gemini'
-        ? { voiceProvider, model: geminiModel }
-        : {
-            voiceProvider,
-            model: sarvamModel,
-            sttModel: sarvamSttModel,
-            ttsModel: sarvamTtsModel,
-          };
-    },
+    agentConfig,
+    practiceOrder,
     telephony: options.telephony,
+    voiceAgent: options.voiceAgent,
   });
-  await integrations.registerRoutes(callManagement);
+  await integrations.registerRoutes(callManagement.calls);
+  registerWorkspaceRoutes(
+    app,
+    createWorkspace({
+      store,
+      voiceAgentStatus: callManagement.voiceAgentStatus,
+      connections: {
+        telephony: {
+          provider: options.telephony ? 'test' : config.TELEPHONY_PROVIDER,
+          callerId: config.PLIVO_FROM_NUMBER || null,
+        },
+        maxCallSeconds: config.MAX_CALL_SECONDS,
+        maxConcurrentCalls: config.MAX_CONCURRENT_CALLS,
+      },
+    }),
+  );
 
   if (existsSync(resolve(webDist, 'index.html'))) {
     await app.register(staticFiles, { root: webDist, index: 'index.html' });
     app.addHook('onSend', async (request, reply, payload) => {
-      if (!request.url.startsWith('/api/') && !request.url.startsWith('/ws/'))
+      if (!request.url.startsWith('/api/'))
         reply.header(
           'Content-Security-Policy',
-          "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+          "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
         );
       return payload;
     });

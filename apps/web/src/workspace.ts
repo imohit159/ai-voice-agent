@@ -1,4 +1,7 @@
-import type { WorkspaceState } from '@orderline/contracts/api';
+import type {
+  CallAttemptSummary,
+  WorkspaceState,
+} from '@orderline/contracts/api';
 import { createApiClient } from './api/client.js';
 import { renderLogin } from './features/auth/login.js';
 import { ordersPage, type OrderFilter } from './features/orders/view.js';
@@ -10,6 +13,7 @@ import { workspaceShell, type Page } from './ui/shell.js';
 
 export function startWorkspace(app: HTMLElement) {
   let state: WorkspaceState;
+  let attempts: CallAttemptSummary[] = [];
   let authenticated = false;
   let page: Page = 'orders';
   let filter: OrderFilter = 'all';
@@ -46,7 +50,10 @@ export function startWorkspace(app: HTMLElement) {
     });
   }
   async function refresh() {
-    state = await api.state();
+    [state, { attempts }] = await Promise.all([
+      api.state(),
+      api.callAttempts(),
+    ]);
   }
   function render() {
     if (!state || !authenticated) return;
@@ -59,7 +66,7 @@ export function startWorkspace(app: HTMLElement) {
             agentPanel(state, practice.snapshot(), busy),
           )
         : page === 'calls'
-          ? callsPage(state, selectedCallId)
+          ? callsPage(attempts, selectedCallId)
           : settingsPage(state);
     app.innerHTML = workspaceShell(state, page, content);
     bind();
@@ -110,7 +117,7 @@ export function startWorkspace(app: HTMLElement) {
     if (practiceButton)
       practiceButton.onclick = () => {
         if (practice.snapshot().running) practice.stop();
-        else void practice.start(state.orders[0]!.id);
+        else void practice.start();
       };
     document.querySelectorAll<HTMLButtonElement>('[data-call]').forEach(
       (button) =>
@@ -159,7 +166,7 @@ export function startWorkspace(app: HTMLElement) {
   }
   async function loadCall(id: string) {
     await action(async () => {
-      const result = await api.call(id);
+      const result = await api.callAttempt(id);
       const panel = document.querySelector<HTMLElement>('#call-detail');
       if (!panel) return;
       panel.hidden = false;

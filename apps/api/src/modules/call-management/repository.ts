@@ -8,6 +8,12 @@ import {
   type CallRequestStatus,
   type UseCase,
 } from '@orderline/contracts/integration';
+import {
+  agentConfigSchema,
+  type AgentConfig,
+  type TranscriptRole,
+} from '@orderline/contracts/voice';
+import type { CallAttemptSummary } from '@orderline/contracts/api';
 
 export interface StoredCallRequest {
   id: string;
@@ -34,7 +40,8 @@ export interface StoredAttempt {
   provider: string;
   providerCallId: string | null;
   providerLegId: string | null;
-  aiConfig: Record<string, unknown>;
+  /** null for attempts recorded before the full agent snapshot existed. */
+  agentConfig: AgentConfig | null;
   outcome: CallOutcome | null;
   outcomeSummary: string | null;
   callbackAt: string | null;
@@ -42,6 +49,14 @@ export interface StoredAttempt {
   startedAt: string;
   answeredAt: string | null;
   endedAt: string | null;
+  voiceSessionStartedAt: string | null;
+  voiceSessionEndedAt: string | null;
+}
+
+export interface NewTranscriptEntry {
+  role: TranscriptRole;
+  text: string;
+  spokenAt: string;
 }
 
 type RequestRow = {
@@ -77,6 +92,8 @@ type AttemptRow = {
   started_at: string;
   answered_at: string | null;
   ended_at: string | null;
+  voice_session_started_at: string | null;
+  voice_session_ended_at: string | null;
 };
 
 const toRequest = (row: RequestRow): StoredCallRequest => ({
@@ -104,7 +121,8 @@ const toAttempt = (row: AttemptRow): StoredAttempt => ({
   provider: row.provider,
   providerCallId: row.provider_call_id,
   providerLegId: row.provider_leg_id,
-  aiConfig: JSON.parse(row.ai_config) as Record<string, unknown>,
+  agentConfig:
+    agentConfigSchema.safeParse(JSON.parse(row.ai_config)).data ?? null,
   outcome: row.outcome,
   outcomeSummary: row.outcome_summary,
   callbackAt: row.callback_at,
@@ -112,6 +130,8 @@ const toAttempt = (row: AttemptRow): StoredAttempt => ({
   startedAt: row.started_at,
   answeredAt: row.answered_at,
   endedAt: row.ended_at,
+  voiceSessionStartedAt: row.voice_session_started_at,
+  voiceSessionEndedAt: row.voice_session_ended_at,
 });
 
 const placeholders = (values: readonly unknown[]) =>
@@ -224,7 +244,7 @@ export function createCallManagementRepository(db: DatabaseSync) {
     insertAttempt(attempt: StoredAttempt): void {
       db.prepare(
         `INSERT INTO call_attempts (id, call_request_id, attempt_number, status, provider,
-          provider_call_id, ai_config, started_at) VALUES (?,?,?,?,?,?,?,?)`,
+          provider_call_id, ai_config, started_at, answered_at) VALUES (?,?,?,?,?,?,?,?,?)`,
       ).run(
         attempt.id,
         attempt.callRequestId,
@@ -232,8 +252,9 @@ export function createCallManagementRepository(db: DatabaseSync) {
         attempt.status,
         attempt.provider,
         attempt.providerCallId,
-        JSON.stringify(attempt.aiConfig),
+        JSON.stringify(attempt.agentConfig),
         attempt.startedAt,
+        attempt.answeredAt,
       );
     },
     updateAttempt(
@@ -282,6 +303,99 @@ export function createCallManagementRepository(db: DatabaseSync) {
           OR (status IN ('dialing','ringing','in_progress') AND started_at <= ?))`,
         staleBefore,
       );
+    },
+
+    /** Marks the single voice session for an answered attempt; false if already claimed. */
+    claimVoiceSession(attemptId: string, at: string): boolean {
+      return (
+        db
+          .prepare(
+            `UPDATE call_attempts SET voice_session_started_at=? WHERE id=?
+              AND voice_session_started_at IS NULL AND status='in_progress'`,
+          )
+          .run(at, attemptId).changes === 1
+      );
+    },
+    endVoiceSession(attemptId: string, at: string): void {
+      db.prepare(
+        `UPDATE call_attempts SET voice_session_ended_at=COALESCE(voice_session_ended_at, ?)
+          WHERE id=?`,
+      ).run(at, attemptId);
+    },
+    transcriptCount(attemptId: string): number {
+      const row = db
+        .prepare(
+          'SELECT count(*) AS n FROM transcript_entries WHERE attempt_id=?',
+        )
+        .get(attemptId) as { n: number };
+      return row.n;
+    },
+    insertTranscript(
+      attemptId: string,
+      entries: NewTranscriptEntry[],
+      createdAt: string,
+    ): void {
+      const insert = db.prepare(
+        `INSERT INTO transcript_entries (attempt_id, role, text, spoken_at, created_at)
+          VALUES (?,?,?,?,?)`,
+      );
+      for (const entry of entries)
+        insert.run(
+          attemptId,
+          entry.role,
+          entry.text,
+          entry.spokenAt,
+          createdAt,
+        );
+    },
+    transcript(attemptId: string): NewTranscriptEntry[] {
+      return db
+        .prepare(
+          `SELECT role, text, spoken_at AS spokenAt FROM transcript_entries
+            WHERE attempt_id=? ORDER BY id`,
+        )
+        .all(attemptId) as unknown as NewTranscriptEntry[];
+    },
+    /** Practice attempts still holding a session slot. */
+    livePracticeAttempts(): StoredAttempt[] {
+      return attempts(
+        `SELECT a.* FROM call_attempts a JOIN call_requests r ON r.id = a.call_request_id
+          WHERE r.source='practice' AND a.status IN (${placeholders(LIVE_ATTEMPT_STATUSES)})`,
+        ...LIVE_ATTEMPT_STATUSES,
+      );
+    },
+    attemptSummaries(limit: number, attemptId?: string): CallAttemptSummary[] {
+      const rows = db
+        .prepare(
+          `SELECT a.*, r.request_id, r.source, r.order_ref, r.status AS request_status
+            FROM call_attempts a JOIN call_requests r ON r.id = a.call_request_id
+            ${attemptId ? 'WHERE a.id = ?' : ''}
+            ORDER BY a.started_at DESC LIMIT ?`,
+        )
+        .all(...(attemptId ? [attemptId] : []), limit) as (AttemptRow & {
+        request_id: string;
+        source: StoredCallRequest['source'];
+        order_ref: string;
+        request_status: CallRequestStatus;
+      })[];
+      return rows.map((row) => {
+        const attempt = toAttempt(row);
+        return {
+          id: attempt.id,
+          requestId: row.request_id,
+          source: row.source,
+          orderRef: row.order_ref,
+          attemptNumber: attempt.attemptNumber,
+          status: attempt.status,
+          requestStatus: row.request_status,
+          outcome: attempt.outcome,
+          agent: attempt.agentConfig,
+          failureReason: attempt.failureReason,
+          startedAt: attempt.startedAt,
+          answeredAt: attempt.answeredAt,
+          endedAt: attempt.endedAt,
+        };
+      });
     },
   };
 }

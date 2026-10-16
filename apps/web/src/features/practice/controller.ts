@@ -1,7 +1,9 @@
-import { BrowserVoice } from '../../voice.js';
 import type { ApiClient } from '../../api/client.js';
-import { badge, transcriptHtml } from '../../ui/format.js';
+import { transcriptHtml } from '../../ui/format.js';
 import type { PracticeState } from './view.js';
+import { PracticeConnection } from './webrtc.js';
+
+const TRANSCRIPT_POLL_MS = 2_000;
 
 export function createPracticeController(options: {
   api: ApiClient;
@@ -12,67 +14,65 @@ export function createPracticeController(options: {
   onCall: (id: string) => void;
   onEnded: () => void;
 }) {
-  let voice: BrowserVoice | null = null;
-  let status = 'idle';
+  let connection: PracticeConnection | null = null;
+  let status: PracticeState['status'] = 'idle';
   let transcript: PracticeState['transcript'] = [];
-  let outcome: string | null = null;
+  let poll: number | undefined;
 
-  async function start(orderId: string) {
-    if (options.isBusy() || voice) return;
-    options.setBusy(true);
-    transcript = [];
-    outcome = null;
-    const instance = new BrowserVoice({
-      status: (next) => {
-        status = next;
-        if (next === 'ended') {
-          voice = null;
-          options.setBusy(false);
-          options.onEnded();
-        }
-        const element = document.querySelector('#voice-status');
-        if (element)
-          element.textContent = {
-            connecting: 'Connecting to your agent…',
-            listening: 'Listening to you',
-            speaking: 'Your agent is speaking',
-            ended: 'Practice complete',
-          }[next];
-      },
-      transcript: (role, text) => {
-        transcript.push({ role, text });
+  function setStatus(next: PracticeState['status']) {
+    status = next;
+    const element = document.querySelector('#voice-status');
+    if (element)
+      element.textContent = {
+        idle: 'Ready for a conversation',
+        connecting: 'Connecting to your agent…',
+        live: 'Live: speak naturally',
+        ended: 'Practice complete',
+      }[next];
+  }
+
+  // Node stores what was said; the panel shows it as it arrives.
+  function followTranscript(attemptId: string) {
+    poll = window.setInterval(async () => {
+      try {
+        transcript = (await options.api.callAttempt(attemptId)).transcript;
         const element = document.querySelector('#live-transcript');
         if (element) {
           element.innerHTML = transcriptHtml(transcript);
           element.scrollTop = element.scrollHeight;
         }
-      },
-      outcome: (value) => {
-        outcome = value;
-        const element = document.querySelector('#live-result');
-        if (element) element.innerHTML = badge(value);
-      },
-      error: options.toast,
+      } catch {
+        // The next poll retries; the call itself is unaffected.
+      }
+    }, TRANSCRIPT_POLL_MS);
+  }
+
+  async function start() {
+    if (options.isBusy() || connection) return;
+    options.setBusy(true);
+    transcript = [];
+    const current = new PracticeConnection(() => {
+      window.clearInterval(poll);
+      connection = null;
+      setStatus('ended');
+      options.setBusy(false);
+      options.onEnded();
     });
-    voice = instance;
-    status = 'connecting';
+    connection = current;
+    setStatus('connecting');
     options.render();
     try {
-      await instance.prepare();
-      if (voice !== instance) return;
-      const result = await options.api.startCall({
-        orderId,
-        mode: 'browser',
-        requestKey: crypto.randomUUID(),
-      });
-      // Preparing the microphone and requesting a token can both outlive End practice.
-      if (voice !== instance) return;
-      if (!result.token) throw new Error('Voice session could not be started.');
-      options.onCall(result.call.id);
-      instance.connect(result.token);
+      const { attemptId } = await options.api.startPractice();
+      options.onCall(attemptId);
+      await current.start(
+        async (sdp) => (await options.api.practiceOffer(attemptId, sdp)).sdp,
+      );
+      if (connection !== current) return;
+      setStatus('live');
       options.setBusy(false);
+      followTranscript(attemptId);
     } catch (error) {
-      instance.stop();
+      current.stop();
       options.toast(
         error instanceof Error ? error.message : 'Could not start practice.',
       );
@@ -81,12 +81,11 @@ export function createPracticeController(options: {
 
   return {
     start,
-    stop: () => voice?.stop(),
+    stop: () => connection?.stop(),
     snapshot: (): PracticeState => ({
-      running: voice !== null,
+      running: connection !== null,
       status,
       transcript,
-      outcome,
     }),
   };
 }

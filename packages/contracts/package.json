@@ -30,6 +30,10 @@
     "./integration": {
       "types": "./dist/integration.d.ts",
       "import": "./dist/integration.js"
+    },
+    "./voice": {
+      "types": "./dist/voice.d.ts",
+      "import": "./dist/voice.js"
     }
   }
 }

@@ -9,6 +9,7 @@ import {
   type CallRequestReceipt,
   type FinalAttemptStatus,
 } from '@orderline/contracts/integration';
+import type { AgentConfig } from '@orderline/contracts/voice';
 import {
   isCallable,
   nextCallableTime,
@@ -49,7 +50,9 @@ type Dependencies = {
   policy: CallingPolicy;
   maxConcurrentCalls: number;
   maxCallSeconds: number;
-  aiConfig: () => Record<string, unknown>;
+  agentConfig: () => AgentConfig;
+  /** Whether the voice agent can serve this configuration; never dial a call nobody will answer. */
+  isVoiceAgentReady: (agent: AgentConfig) => Promise<boolean>;
   /**
    * Runs inside the transaction that settles the attempt, so it must be
    * synchronous and write only through the same database connection.
@@ -63,6 +66,8 @@ type Dependencies = {
 const HOUR_MS = 3_600_000;
 // Allowance beyond the maximum call length for provider teardown and late callbacks.
 const LIVE_GRACE_SECONDS = 120;
+// Time a browser has to complete the WebRTC handshake after opening practice.
+const PRACTICE_CONNECT_SECONDS = 120;
 const STATUS_RANK: Record<AttemptStatus, number> = {
   dialing: 0,
   unknown: 0,
@@ -82,7 +87,8 @@ export function createCallManagement({
   policy,
   maxConcurrentCalls,
   maxCallSeconds,
-  aiConfig,
+  agentConfig,
+  isVoiceAgentReady,
   onAttemptFinished,
   now,
   newId,
@@ -272,7 +278,7 @@ export function createCallManagement({
         provider: telephony.name,
         providerCallId: null,
         providerLegId: null,
-        aiConfig: aiConfig(),
+        agentConfig: agentConfig(),
         outcome: null,
         outcomeSummary: null,
         callbackAt: null,
@@ -280,6 +286,8 @@ export function createCallManagement({
         startedAt,
         answeredAt: null,
         endedAt: null,
+        voiceSessionStartedAt: null,
+        voiceSessionEndedAt: null,
       };
       repository.insertAttempt(record);
       repository.updateRequest(request.id, {
@@ -351,6 +359,15 @@ export function createCallManagement({
       log.info({ requestId: request.requestId }, 'Call request expired');
     }
     if (!isCallable(at.getTime(), policy)) return;
+    const due = repository.dueRequests(timestamp, maxConcurrentCalls);
+    if (!due.length) return;
+    if (!(await isVoiceAgentReady(agentConfig()))) {
+      log.warn(
+        { pending: due.length },
+        'Voice agent is not ready; postponing due calls',
+      );
+      return;
+    }
     const liveSince = new Date(
       at.getTime() - (maxCallSeconds + LIVE_GRACE_SECONDS) * 1000,
     ).toISOString();
@@ -401,12 +418,139 @@ export function createCallManagement({
     }
   }
 
+  const liveSince = (at: Date) =>
+    new Date(
+      at.getTime() - (maxCallSeconds + LIVE_GRACE_SECONDS) * 1000,
+    ).toISOString();
+
+  /** Opens a browser practice conversation: no call is dialled and no result is delivered. */
+  async function startPracticeSession(
+    practice: Pick<CallRequest, 'customer' | 'order'>,
+  ): Promise<StoredAttempt> {
+    if (!(await isVoiceAgentReady(agentConfig())))
+      throw new CallManagementError(
+        503,
+        'The voice agent is not ready for the selected AI provider.',
+      );
+    const at = now();
+    const timestamp = at.toISOString();
+    if (repository.liveAttemptCount(liveSince(at)) >= maxConcurrentCalls)
+      throw new CallManagementError(
+        409,
+        'All conversation slots are in use. Try practice again shortly.',
+      );
+    const key = `practice-${newId()}`;
+    const payload: CallRequest = {
+      requestId: key,
+      useCase: 'order_confirmation',
+      ...practice,
+    };
+    const attempt = repository.transaction(() => {
+      repository.insertRequest({
+        id: newId(),
+        requestId: key,
+        source: 'practice',
+        useCase: 'order_confirmation',
+        orderRef: key,
+        status: 'in_progress',
+        maxAttempts: 1,
+        notBefore: timestamp,
+        notAfter: new Date(
+          at.getTime() + (maxCallSeconds + LIVE_GRACE_SECONDS) * 1000,
+        ).toISOString(),
+        nextAttemptAt: null,
+        payload,
+        payloadHash: createHash('sha256')
+          .update(JSON.stringify(payload))
+          .digest('hex'),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      const record: StoredAttempt = {
+        id: newId(),
+        callRequestId: repository.requestByRequestId(key)!.id,
+        attemptNumber: 1,
+        // A browser session is "answered" as soon as it exists.
+        status: 'in_progress',
+        provider: 'webrtc',
+        providerCallId: null,
+        providerLegId: null,
+        agentConfig: agentConfig(),
+        outcome: null,
+        outcomeSummary: null,
+        callbackAt: null,
+        failureReason: null,
+        startedAt: timestamp,
+        answeredAt: timestamp,
+        endedAt: null,
+        voiceSessionStartedAt: null,
+        voiceSessionEndedAt: null,
+      };
+      repository.insertAttempt(record);
+      return record;
+    });
+    log.info({ attemptId: attempt.id }, 'Practice session opened');
+    return attempt;
+  }
+
+  function finishPracticeSession(
+    attemptId: string,
+    status: 'completed' | 'failed',
+    failureReason: string | null,
+  ) {
+    const attempt = repository.attemptById(attemptId);
+    if (!attempt || isFinal(attempt.status)) return;
+    finishAttempt(
+      attempt,
+      status,
+      { providerCallId: null, providerLegId: null },
+      failureReason,
+    );
+  }
+
+  /** Practice sessions never connected, or never reported their end, release their slot. */
+  function expirePracticeSessions() {
+    const at = now();
+    const connectBy = new Date(
+      at.getTime() - PRACTICE_CONNECT_SECONDS * 1000,
+    ).toISOString();
+    for (const attempt of repository.livePracticeAttempts()) {
+      if (!attempt.voiceSessionStartedAt && attempt.startedAt <= connectBy)
+        finishPracticeSession(
+          attempt.id,
+          'failed',
+          'The browser did not connect to the voice agent.',
+        );
+      else if (attempt.startedAt <= liveSince(at))
+        finishPracticeSession(
+          attempt.id,
+          'failed',
+          'The practice session did not end cleanly.',
+        );
+    }
+  }
+
+  function listAttempts(limit: number) {
+    return repository.attemptSummaries(limit);
+  }
+
+  function attemptDetail(attemptId: string) {
+    const [attempt] = repository.attemptSummaries(1, attemptId);
+    if (!attempt) throw new CallManagementError(404, 'Call attempt not found.');
+    return { attempt, transcript: repository.transcript(attemptId) };
+  }
+
   return {
     acceptCallRequest,
     applyProviderEvent,
     runSchedule,
     recoverAfterRestart,
     reconcile,
+    listAttempts,
+    attemptDetail,
+    startPracticeSession,
+    finishPracticeSession,
+    expirePracticeSessions,
   };
 }
 

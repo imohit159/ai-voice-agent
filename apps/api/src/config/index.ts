@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { settingsSchema, type Settings } from '@orderline/contracts';
+import { settingsSchema } from '@orderline/contracts';
 import { MAX_CALL_ATTEMPTS } from '@orderline/contracts/integration';
 import { workspaceRoot } from './paths.js';
 
@@ -16,9 +16,6 @@ const schema = z
     ADMIN_PASSWORD: z.string().min(16),
     SESSION_SECRET: z.string().min(32),
     DATABASE_PATH: z.string().default('data/agent.sqlite'),
-    GEMINI_API_KEY: optional,
-    SARVAM_API_KEY: optional,
-    SARVAM_VOICE_AGENTS_API_KEY: optional,
     VOICE_PROVIDER: settingsSchema.shape.voiceProvider,
     SARVAM_MODEL: settingsSchema.shape.sarvamModel,
     SARVAM_STT_MODEL: settingsSchema.shape.sarvamSttModel,
@@ -40,6 +37,10 @@ const schema = z
       .default(''),
     // Public HTTPS origin Plivo calls back to, e.g. https://agent.example.com
     PUBLIC_BASE_URL: optional,
+    // Private base URL of the Pipecat voice agent, and the shared token both services
+    // use on their internal APIs. The AI provider keys live only with the voice agent.
+    VOICE_AGENT_INTERNAL_URL: z.url().default('http://127.0.0.1:7860'),
+    VOICE_AGENT_INTERNAL_TOKEN: z.string().min(32),
     // Public WSS endpoint of the Pipecat voice agent that Plivo streams call audio to.
     VOICE_AGENT_STREAM_URL: z
       .union([z.literal(''), z.url({ protocol: /^wss$/ })])
@@ -135,7 +136,3 @@ export const defaultSettings = settingsSchema.parse({
   sarvamSttModel: config.SARVAM_STT_MODEL,
   sarvamTtsModel: config.SARVAM_TTS_MODEL,
 });
-export function voiceReadiness(provider: Settings['voiceProvider']): string[] {
-  const key = provider === 'sarvam' ? 'SARVAM_API_KEY' : 'GEMINI_API_KEY';
-  return config[key] ? [] : [key];
-}

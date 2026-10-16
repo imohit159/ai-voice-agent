@@ -49,7 +49,7 @@ for (const file of files(sourceRoot)) {
     } else if (sourceModule && /^(app|index)\.ts$/.test(target)) {
       reason = 'Business modules cannot depend on application bootstrap.';
     } else if (
-      /^modules\/[^/]+\/service\.ts$/.test(source) &&
+      /^modules\/[^/]+\/(?:[\w-]+\.)?service\.ts$/.test(source) &&
       (/^config\//.test(target) ||
         /\/(infrastructure\/|routes\.ts$|callbacks\.routes\.ts$)/.test(target))
     ) {

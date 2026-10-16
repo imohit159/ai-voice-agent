@@ -11,7 +11,9 @@ import {
   type ProviderCallStatus,
   type Telephony,
 } from '../src/modules/call-management/telephony.js';
+import { createVoiceSessions } from '../src/modules/call-management/voice-session.service.js';
 import { createResultDeliveryRepository } from '../src/modules/integrations/repository.js';
+import { issueToken, verifyToken } from '../src/platform/security/tokens.js';
 import {
   createResults,
   type WebhookResponse,
@@ -41,7 +43,7 @@ export function callRequest(overrides: Partial<CallRequest> = {}): CallRequest {
 type DialBehaviour = { status: ProviderCallStatus } | { error: TelephonyError };
 
 /** Fake provider: dials succeed with `ringing` unless a behaviour is queued. */
-export function fakeTelephony() {
+export function fakeTelephony(name = 'fake') {
   const dialled: {
     attemptId: string;
     phone: string;
@@ -50,7 +52,7 @@ export function fakeTelephony() {
   const queued: DialBehaviour[] = [];
   const states = new Map<string, ProviderCallStatus>();
   const telephony: Telephony = {
-    name: 'fake',
+    name,
     async dial({ attemptId, phone }) {
       const behaviour = queued.shift() ?? { status: 'ringing' };
       if ('error' in behaviour) throw behaviour.error;
@@ -72,6 +74,7 @@ export function harness(
   options: {
     maxConcurrentCalls?: number;
     send?: ((body: string) => Promise<WebhookResponse>) | null;
+    provider?: string;
   } = {},
 ) {
   const db = openDatabase(':memory:');
@@ -79,7 +82,8 @@ export function harness(
   const advance = (minutes: number) => {
     clock.now = new Date(clock.now.getTime() + minutes * 60_000);
   };
-  const provider = fakeTelephony();
+  const provider = fakeTelephony(options.provider);
+  const voiceAgent = { ready: true };
   const events: AttemptFinishedEvent[] = [];
   const deliveries = createResultDeliveryRepository(db);
   const results = createResults({
@@ -98,7 +102,13 @@ export function harness(
     policy: { startHour: 10, endHour: 19, retryDelaysMinutes: [30, 120] },
     maxConcurrentCalls: options.maxConcurrentCalls ?? 2,
     maxCallSeconds: 180,
-    aiConfig: () => ({ voiceProvider: 'gemini', model: 'test-model' }),
+    agentConfig: () => ({
+      voiceProvider: 'gemini',
+      model: 'test-model',
+      language: 'Hindi and English',
+      storeName: 'Test Store',
+    }),
+    isVoiceAgentReady: async () => voiceAgent.ready,
     onAttemptFinished: (event) => {
       events.push(event);
       results.record(event);
@@ -107,6 +117,18 @@ export function harness(
     newId: randomUUID,
     log: quietLog,
   });
+  const sessionSecret = 'harness-session-secret-at-least-32-chars';
+  const sessions = createVoiceSessions({
+    repository,
+    calls,
+    verifySessionToken: (token) =>
+      verifyToken(sessionSecret, token, 'voice-session'),
+    maxCallSeconds: 180,
+    now: () => clock.now,
+    log: quietLog,
+  });
+  const sessionToken = (attemptId: string) =>
+    issueToken(sessionSecret, 'voice-session', attemptId, 300);
   const outbox = () =>
     (
       db
@@ -123,5 +145,8 @@ export function harness(
     repository,
     calls,
     outbox,
+    voiceAgent,
+    sessions,
+    sessionToken,
   };
 }

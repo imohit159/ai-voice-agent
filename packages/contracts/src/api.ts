@@ -1,9 +1,14 @@
-import type { Call, Order, Settings, Transcript } from './domain.js';
+import type { Order, Settings } from './domain.js';
+import type {
+  AttemptStatus,
+  CallOutcome,
+  CallRequestStatus,
+} from './integration.js';
+import type { AgentConfig, TranscriptRole } from './voice.js';
 
 export interface WorkspaceState {
   settings: Settings;
   orders: Order[];
-  calls: Call[];
   connections: {
     geminiConfigured: boolean;
     sarvamConfigured: boolean;
@@ -16,17 +21,43 @@ export interface WorkspaceState {
   };
 }
 
-export interface StartCallRequest {
-  orderId: string;
-  mode: Call['mode'];
-  requestKey: string;
+export interface CallAttemptSummary {
+  id: string;
+  requestId: string;
+  source: 'integration' | 'practice';
+  orderRef: string;
+  attemptNumber: number;
+  status: AttemptStatus;
+  requestStatus: CallRequestStatus;
+  outcome: CallOutcome | null;
+  agent: AgentConfig | null;
+  failureReason: string | null;
+  startedAt: string;
+  answeredAt: string | null;
+  endedAt: string | null;
 }
 
-export interface StartCallResponse {
-  call: Call;
-  token?: string;
+export interface TranscriptEntry {
+  role: TranscriptRole;
+  text: string;
+  spokenAt: string;
 }
-export interface CallDetail {
-  call: Call;
-  transcript: Transcript[];
+
+export interface CallAttemptDetail {
+  attempt: CallAttemptSummary;
+  transcript: TranscriptEntry[];
+}
+
+export interface PracticeSession {
+  attemptId: string;
+}
+
+export interface PracticeOffer {
+  sdp: string;
+  type: 'offer';
+}
+
+export interface PracticeAnswer {
+  sdp: string;
+  type: 'answer';
 }

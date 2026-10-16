@@ -96,9 +96,11 @@ test('an answered call completes the request and queues one answered result', as
   const { attemptId, phone, providerCallId } = h.provider.dialled[0]!;
   assert.equal(phone, '+919625532959');
   assert.equal(h.repository.attemptById(attemptId)!.status, 'ringing');
-  assert.deepEqual(h.repository.attemptById(attemptId)!.aiConfig, {
+  assert.deepEqual(h.repository.attemptById(attemptId)!.agentConfig, {
     voiceProvider: 'gemini',
     model: 'test-model',
+    language: 'Hindi and English',
+    storeName: 'Test Store',
   });
   assert.equal(
     h.repository.requestByRequestId('req-1001')!.status,
@@ -309,4 +311,90 @@ test('a window without calling hours is rejected at intake', () => {
     { statusCode: 422 },
   );
   assert.equal(START.toISOString(), h.clock.now.toISOString());
+});
+
+test('calls wait while the voice agent cannot serve them', async () => {
+  const h = harness();
+  h.voiceAgent.ready = false;
+  h.calls.acceptCallRequest(callRequest());
+  await h.calls.runSchedule();
+  assert.equal(h.provider.dialled.length, 0);
+  assert.equal(h.repository.requestByRequestId('req-1001')!.status, 'pending');
+  h.voiceAgent.ready = true;
+  await h.calls.runSchedule();
+  assert.equal(h.provider.dialled.length, 1);
+});
+
+test('a phone voice session binds to the answered Plivo call leg exactly once', async () => {
+  const h = harness({ provider: 'plivo' });
+  h.calls.acceptCallRequest(callRequest());
+  await h.calls.runSchedule();
+  const { attemptId, providerCallId } = h.provider.dialled[0]!;
+  const sessionToken = h.sessionToken(attemptId);
+  const claim = (providerLegId?: string) =>
+    h.sessions.claim({
+      attemptId,
+      sessionToken,
+      transport: 'plivo',
+      providerLegId,
+    });
+
+  // Not answered yet: no session.
+  h.calls.applyProviderEvent({
+    attemptId,
+    providerCallId,
+    providerLegId: 'leg-1',
+    status: 'ringing',
+  });
+  assert.throws(() => claim('leg-1'), { statusCode: 409 });
+  h.calls.applyProviderEvent({
+    attemptId,
+    providerCallId,
+    status: 'in_progress',
+  });
+  assert.throws(() => claim('leg-other'), { statusCode: 403 });
+  assert.throws(() => claim(), { statusCode: 403 });
+  assert.throws(
+    () => h.sessions.claim({ attemptId, sessionToken, transport: 'webrtc' }),
+    { statusCode: 403 },
+  );
+  const context = claim('leg-1');
+  assert.equal(context.isPractice, false);
+  assert.equal(context.customer.name, 'Asha');
+  assert.equal(context.agent.language, 'Hindi and English');
+  assert.throws(() => claim('leg-1'), { statusCode: 409 });
+
+  // Ending a phone session leaves the attempt to Plivo's hangup callback.
+  h.sessions.end(attemptId, { sessionToken, reason: 'disconnected' });
+  assert.equal(h.repository.attemptById(attemptId)!.status, 'in_progress');
+});
+
+test('unconnected and abandoned practice sessions release their slot', async () => {
+  const h = harness({ maxConcurrentCalls: 2 });
+  const practice = {
+    customer: callRequest().customer,
+    order: callRequest().order,
+  };
+  const never = await h.calls.startPracticeSession(practice);
+  const abandoned = await h.calls.startPracticeSession(practice);
+  await assert.rejects(h.calls.startPracticeSession(practice), {
+    statusCode: 409,
+  });
+  h.sessions.claim({
+    attemptId: abandoned.id,
+    sessionToken: h.sessionToken(abandoned.id),
+    transport: 'webrtc',
+  });
+  h.advance(3);
+  h.calls.expirePracticeSessions();
+  assert.equal(h.repository.attemptById(never.id)!.status, 'failed');
+  assert.equal(h.repository.attemptById(abandoned.id)!.status, 'in_progress');
+  h.advance(5);
+  h.calls.expirePracticeSessions();
+  assert.equal(h.repository.attemptById(abandoned.id)!.status, 'failed');
+  assert.equal(
+    h.outbox().length,
+    0,
+    'practice never reaches the business system',
+  );
 });

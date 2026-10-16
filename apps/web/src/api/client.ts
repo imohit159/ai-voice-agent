@@ -1,9 +1,10 @@
 import type { Settings, Order } from '@orderline/contracts';
 import type {
+  CallAttemptDetail,
+  CallAttemptSummary,
+  PracticeAnswer,
+  PracticeSession,
   WorkspaceState,
-  StartCallRequest,
-  StartCallResponse,
-  CallDetail,
 } from '@orderline/contracts/api';
 
 export function createApiClient(onUnauthorized: () => void) {
@@ -35,10 +36,20 @@ export function createApiClient(onUnauthorized: () => void) {
     saveSettings: (settings: Settings | Record<string, FormDataEntryValue>) =>
       request<{ settings: Settings }>('/api/settings', 'PUT', settings),
     resetDemo: () => request<{ order: Order }>('/api/demo/reset', 'POST', {}),
-    startCall: (input: StartCallRequest) =>
-      request<StartCallResponse>('/api/calls', 'POST', input),
-    call: (id: string) =>
-      request<CallDetail>(`/api/calls/${encodeURIComponent(id)}`),
+    callAttempts: () =>
+      request<{ attempts: CallAttemptSummary[] }>('/api/call-attempts'),
+    callAttempt: (id: string) =>
+      request<CallAttemptDetail>(
+        `/api/call-attempts/${encodeURIComponent(id)}`,
+      ),
+    startPractice: () =>
+      request<PracticeSession>('/api/practice-sessions', 'POST', {}),
+    practiceOffer: (attemptId: string, sdp: string) =>
+      request<PracticeAnswer>(
+        `/api/practice-sessions/${encodeURIComponent(attemptId)}/offer`,
+        'POST',
+        { sdp, type: 'offer' },
+      ),
   };
 }
 

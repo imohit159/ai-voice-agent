@@ -81,4 +81,19 @@ export const migrations: readonly string[] = [
   `ALTER TABLE call_attempts ADD COLUMN provider_leg_id TEXT;
   CREATE UNIQUE INDEX call_attempts_provider_leg ON call_attempts(provider_leg_id)
     WHERE provider_leg_id IS NOT NULL;`,
+
+  // 5: voice-agent sessions and their transcripts. The legacy calls/transcripts
+  // tables are no longer read but are kept until their history is archived.
+  `ALTER TABLE call_attempts ADD COLUMN voice_session_started_at TEXT;
+  ALTER TABLE call_attempts ADD COLUMN voice_session_ended_at TEXT;
+  CREATE INDEX call_attempts_started ON call_attempts(started_at);
+  CREATE TABLE transcript_entries (
+    id INTEGER PRIMARY KEY,
+    attempt_id TEXT NOT NULL REFERENCES call_attempts(id),
+    role TEXT NOT NULL CHECK (role IN ('customer', 'agent')),
+    text TEXT NOT NULL,
+    spoken_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX transcript_entries_attempt ON transcript_entries(attempt_id, id);`,
 ];

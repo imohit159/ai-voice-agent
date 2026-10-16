@@ -2,25 +2,48 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Store } from '../src/platform/persistence/store.js';
-import { issueToken, verifyToken } from '../src/platform/security/tokens.js';
+import type { VoiceAgentClient } from '../src/modules/call-management/infrastructure/voice-agent.js';
 
+const internalToken = 'test-internal-token-at-least-32-characters';
 Object.assign(process.env, {
   ADMIN_PASSWORD: 'test-password-at-least-16-characters',
   SESSION_SECRET: 'test-session-secret-at-least-32-characters',
-  SARVAM_API_KEY: '',
   APP_ORIGIN: 'http://localhost:3000',
-  GEMINI_API_KEY: 'test-key-not-a-real-credential',
   TELEPHONY_PROVIDER: 'simulated',
   PUBLIC_BASE_URL: 'https://test.example',
+  VOICE_AGENT_INTERNAL_TOKEN: internalToken,
 });
 const { createApp } = await import('../src/app.js');
 const origin = 'http://localhost:3000';
-const makeStore = () =>
+const makeStore = (settings = {}) =>
   new Store(
     ':memory:',
-    { storeName: 'Test Store', language: 'English' },
+    { storeName: 'Test Store', language: 'English', ...settings },
     '+919625532959',
   );
+
+/** Stands in for the Pipecat service; records what Node forwards to it. */
+function fakeVoiceAgent(providers = { gemini: true, sarvam: false }) {
+  const offers: Parameters<VoiceAgentClient['practiceOffer']>[0][] = [];
+  const client: VoiceAgentClient = {
+    status: async () => ({ providers }),
+    practiceOffer: async (input) => {
+      offers.push(input);
+      return { sdp: 'answer-sdp', type: 'answer' };
+    },
+  };
+  return { client, offers };
+}
+
+async function appWith(voiceAgent = fakeVoiceAgent()) {
+  const app = await createApp({
+    store: makeStore(),
+    logging: false,
+    voiceAgent: voiceAgent.client,
+  });
+  return { app, voiceAgent };
+}
+
 async function login(app: Awaited<ReturnType<typeof createApp>>) {
   const response = await app.inject({
     method: 'POST',
@@ -34,8 +57,11 @@ async function login(app: Awaited<ReturnType<typeof createApp>>) {
     origin,
   };
 }
+
+const internal = { authorization: `Bearer ${internalToken}` };
+
 test('API requires authentication, rejects hostile origin/host, and exposes no secrets', async () => {
-  const app = await createApp({ store: makeStore(), logging: false });
+  const { app } = await appWith();
   try {
     assert.equal((await app.inject('/api/state')).statusCode, 401);
     assert.equal(
@@ -71,35 +97,36 @@ test('API requires authentication, rejects hostile origin/host, and exposes no s
     );
     const response = await app.inject({ url: '/api/state', headers });
     assert.equal(response.statusCode, 200);
-    assert.ok(!response.body.includes('test-key-not-a-real-credential'));
+    assert.ok(!response.body.includes(internalToken));
     assert.ok(!response.body.includes(process.env.ADMIN_PASSWORD!));
     assert.equal(response.json().orders[0].phone, '+919625532959');
   } finally {
     await app.close();
   }
 });
-test('every operator route shares authentication, origin checks, and validation after route registration', async () => {
-  const app = await createApp({ store: makeStore(), logging: false });
+
+test('every operator route shares authentication, origin checks, and validation', async () => {
+  const { app } = await appWith();
   const id = randomUUID();
   const routes = [
     { method: 'GET' as const, url: '/api/state' },
     { method: 'PUT' as const, url: '/api/settings' },
     { method: 'POST' as const, url: '/api/demo/reset' },
-    { method: 'GET' as const, url: `/api/calls/${id}` },
-    { method: 'POST' as const, url: '/api/calls' },
-    { method: 'POST' as const, url: `/api/calls/${id}/reconcile` },
+    { method: 'GET' as const, url: '/api/call-attempts' },
+    { method: 'GET' as const, url: `/api/call-attempts/${id}` },
+    { method: 'POST' as const, url: '/api/practice-sessions' },
+    { method: 'POST' as const, url: `/api/practice-sessions/${id}/offer` },
     { method: 'POST' as const, url: '/api/logout' },
   ];
   try {
-    for (const route of routes) {
+    for (const route of routes)
       assert.equal(
         (await app.inject({ ...route, headers: { origin } })).statusCode,
         401,
         route.url,
       );
-    }
     const headers = await login(app);
-    for (const route of routes.filter((route) => route.method !== 'GET')) {
+    for (const route of routes.filter((route) => route.method !== 'GET'))
       assert.equal(
         (
           await app.inject({
@@ -110,26 +137,21 @@ test('every operator route shares authentication, origin checks, and validation 
         403,
         route.url,
       );
-    }
-    for (const url of ['/api/settings', '/api/calls']) {
-      const response = await app.inject({
-        method: url === '/api/settings' ? 'PUT' : 'POST',
-        url,
-        headers,
-        payload: { unexpected: true },
-      });
-      assert.equal(response.statusCode, 400);
-      assert.equal(
-        response.json().error,
-        'Invalid request. Check the supplied fields.',
-      );
-    }
+    const invalidSettings = await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      headers,
+      payload: { unexpected: true },
+    });
+    assert.equal(invalidSettings.statusCode, 400);
     assert.equal(
-      (await app.inject({ url: '/api/calls/invalid-id', headers })).statusCode,
+      (await app.inject({ url: '/api/call-attempts/invalid-id', headers }))
+        .statusCode,
       400,
     );
     assert.equal(
-      (await app.inject({ url: `/api/calls/${id}`, headers })).statusCode,
+      (await app.inject({ url: `/api/call-attempts/${id}`, headers }))
+        .statusCode,
       404,
     );
     const logout = await app.inject({
@@ -138,139 +160,260 @@ test('every operator route shares authentication, origin checks, and validation 
       headers,
     });
     assert.equal(logout.statusCode, 200);
-    assert.equal(logout.json().authenticated, false);
     assert.match(String(logout.headers['set-cookie']), /session=;/);
+  } finally {
+    await app.close();
+  }
+});
+
+test('practice runs through the voice agent without exposing its session token', async () => {
+  const { app, voiceAgent } = await appWith();
+  try {
+    const headers = await login(app);
+    const started = await app.inject({
+      method: 'POST',
+      url: '/api/practice-sessions',
+      headers,
+    });
+    assert.equal(started.statusCode, 200);
+    const { attemptId } = started.json();
+
+    const offer = await app.inject({
+      method: 'POST',
+      url: `/api/practice-sessions/${attemptId}/offer`,
+      headers,
+      payload: { sdp: 'offer-sdp', type: 'offer' },
+    });
+    assert.equal(offer.statusCode, 200);
+    assert.deepEqual(offer.json(), { sdp: 'answer-sdp', type: 'answer' });
+    const { sessionToken } = voiceAgent.offers[0]!;
+    assert.ok(!offer.body.includes(sessionToken));
+
+    // The voice agent claims the session over the internal API, once.
+    const claimBody = { attemptId, sessionToken, transport: 'webrtc' };
     assert.equal(
-      (await app.inject('/api/session')).json().authenticated,
-      false,
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/internal/v1/voice-sessions/claim',
+          payload: claimBody,
+        })
+      ).statusCode,
+      401,
+    );
+    const claim = await app.inject({
+      method: 'POST',
+      url: '/internal/v1/voice-sessions/claim',
+      headers: internal,
+      payload: claimBody,
+    });
+    assert.equal(claim.statusCode, 200);
+    const context = claim.json();
+    assert.equal(context.isPractice, true);
+    assert.deepEqual(context.agent, {
+      voiceProvider: 'gemini',
+      model: 'gemini-3.8-live',
+      language: 'English',
+      storeName: 'Test Store',
+    });
+    assert.equal(context.order.total.amountMinor, 149900);
+    assert.equal(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/internal/v1/voice-sessions/claim',
+          headers: internal,
+          payload: claimBody,
+        })
+      ).statusCode,
+      409,
+    );
+
+    const transcript = await app.inject({
+      method: 'POST',
+      url: `/internal/v1/voice-sessions/${attemptId}/transcript`,
+      headers: internal,
+      payload: {
+        sessionToken,
+        entries: [
+          {
+            role: 'agent',
+            text: 'Hello, this is Test Store.',
+            spokenAt: new Date().toISOString(),
+          },
+          {
+            role: 'customer',
+            text: 'Haan, boliye.',
+            spokenAt: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+    assert.equal(transcript.statusCode, 204);
+    const end = await app.inject({
+      method: 'POST',
+      url: `/internal/v1/voice-sessions/${attemptId}/end`,
+      headers: internal,
+      payload: { sessionToken, reason: 'disconnected' },
+    });
+    assert.equal(end.statusCode, 204);
+
+    const detail = (
+      await app.inject({ url: `/api/call-attempts/${attemptId}`, headers })
+    ).json();
+    assert.equal(detail.attempt.source, 'practice');
+    assert.equal(detail.attempt.status, 'completed');
+    assert.deepEqual(
+      detail.transcript.map((entry: { role: string }) => entry.role),
+      ['agent', 'customer'],
+    );
+    // A finished session accepts no more transcript or offers.
+    assert.equal(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/internal/v1/voice-sessions/${attemptId}/transcript`,
+          headers: internal,
+          payload: {
+            sessionToken,
+            entries: [
+              {
+                role: 'agent',
+                text: 'Late',
+                spokenAt: new Date().toISOString(),
+              },
+            ],
+          },
+        })
+      ).statusCode,
+      409,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/practice-sessions/${attemptId}/offer`,
+          headers,
+          payload: { sdp: 'offer-sdp', type: 'offer' },
+        })
+      ).statusCode,
+      409,
     );
   } finally {
     await app.close();
   }
 });
-test(
-  'unconnected practice tokens cannot be replayed',
-  { timeout: 10000 },
-  async () => {
-    const db = makeStore();
-    const app = await createApp({
-      store: db,
-      logging: false,
-      voice: (socket) => {
-        socket.on('message', () =>
-          socket.send(JSON.stringify({ event: 'ready' })),
-        );
-      },
-    });
-    try {
-      const headers = await login(app);
-      const practice = await app.inject({
-        method: 'POST',
-        url: '/api/calls',
-        headers,
-        payload: {
-          orderId: 'DEMO-1001',
-          mode: 'browser',
-          requestKey: randomUUID(),
-        },
-      });
-      const token = practice.json().token;
-      await app.ready();
-      const client = await app.injectWS(`/ws/browser?token=${token}`, {
-        headers,
-      });
-      const response = new Promise<string>((resolve) =>
-        client.once('message', (data) => resolve(data.toString())),
-      );
-      client.send('ping');
-      const received = await response;
-      assert.equal(JSON.parse(received).event, 'ready');
-      for (const socket of app.websocketServer.clients) socket.terminate();
-      client.terminate();
-      assert.equal(
-        (await app.inject({ url: `/ws/browser?token=${token}`, headers }))
-          .statusCode,
-        403,
-      );
-    } finally {
-      await app.close();
-    }
-  },
-);
 
-test('selected provider controls readiness and missing Sarvam credentials never fall back to Gemini', async () => {
-  const db = makeStore();
-  const app = await createApp({ store: db, logging: false });
+test('a session token only opens the attempt it was issued for', async () => {
+  const { app, voiceAgent } = await appWith();
   try {
     const headers = await login(app);
-    let response = await app.inject({
-      method: 'PUT',
-      url: '/api/settings',
-      headers,
-      payload: { ...db.settings(), voiceProvider: 'sarvam' },
-    });
-    assert.equal(response.statusCode, 200);
-    response = await app.inject({ url: '/api/state', headers });
-    assert.equal(response.json().connections.selectedConfigured, false);
-    response = await app.inject({
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const { attemptId } = (
+        await app.inject({
+          method: 'POST',
+          url: '/api/practice-sessions',
+          headers,
+        })
+      ).json();
+      await app.inject({
+        method: 'POST',
+        url: `/api/practice-sessions/${attemptId}/offer`,
+        headers,
+        payload: { sdp: 'offer-sdp', type: 'offer' },
+      });
+      ids.push(attemptId);
+    }
+    const response = await app.inject({
       method: 'POST',
-      url: '/api/calls',
-      headers,
+      url: '/internal/v1/voice-sessions/claim',
+      headers: internal,
       payload: {
-        orderId: 'DEMO-1001',
-        mode: 'browser',
-        requestKey: randomUUID(),
+        attemptId: ids[1],
+        sessionToken: voiceAgent.offers[0]!.sessionToken,
+        transport: 'webrtc',
       },
     });
-    assert.equal(response.statusCode, 409);
-    assert.match(response.body, /SARVAM_API_KEY/);
-    assert.equal(db.calls().length, 0);
+    assert.equal(response.statusCode, 403);
+    const asPhone = await app.inject({
+      method: 'POST',
+      url: '/internal/v1/voice-sessions/claim',
+      headers: internal,
+      payload: {
+        attemptId: ids[0],
+        sessionToken: voiceAgent.offers[0]!.sessionToken,
+        transport: 'plivo',
+        providerLegId: 'leg-1',
+      },
+    });
+    assert.equal(asPhone.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
+
+test('readiness follows the voice agent and blocks practice for a provider it cannot serve', async () => {
+  const { app } = await appWith(
+    fakeVoiceAgent({ gemini: true, sarvam: false }),
+  );
+  try {
+    const headers = await login(app);
+    const settings = (await app.inject({ url: '/api/state', headers })).json()
+      .settings;
     await app.inject({
       method: 'PUT',
       url: '/api/settings',
       headers,
-      payload: {
-        ...db.settings(),
-        voiceProvider: 'gemini',
-        geminiModel: 'configured-live-model',
-      },
+      payload: { ...settings, voiceProvider: 'sarvam' },
     });
-    response = await app.inject({
+    const state = (await app.inject({ url: '/api/state', headers })).json();
+    assert.equal(state.connections.selectedConfigured, false);
+    assert.equal(state.connections.geminiConfigured, true);
+    const practice = await app.inject({
       method: 'POST',
-      url: '/api/calls',
+      url: '/api/practice-sessions',
       headers,
-      payload: {
-        orderId: 'DEMO-1001',
-        mode: 'browser',
-        requestKey: randomUUID(),
-      },
     });
-    assert.equal(response.statusCode, 200);
-    assert.equal(
-      response.json().call.agentSettings.geminiModel,
-      'configured-live-model',
-    );
+    assert.equal(practice.statusCode, 503);
   } finally {
     await app.close();
   }
 });
-test('the integration endpoint is disabled without a secret and does not change dashboard JSON parsing', async () => {
-  const app = await createApp({ store: makeStore(), logging: false });
-  const disabled = await app.inject({
-    method: 'POST',
-    url: '/integrations/v1/call-requests',
-    headers: { 'content-type': 'application/json', 'x-signature': 't=1,v1=0' },
-    payload: '{}',
+
+test('saved settings naming a retired Sarvam model fall back to a supported one', () => {
+  const store = makeStore({
+    sarvamTtsModel: 'bulbul:v4-flash',
+    sarvamSttModel: 'saaras:v3-realtime',
   });
-  assert.equal(disabled.statusCode, 503);
-  const headers = await login(app);
-  const invalid = await app.inject({
-    method: 'POST',
-    url: '/api/calls',
-    headers,
-    payload: { orderId: 'DEMO-1001', mode: 'browser' },
-  });
-  assert.equal(invalid.statusCode, 400);
-  assert.deepEqual(invalid.json().fields, ['requestKey']);
-  await app.close();
+  assert.equal(store.settings().sarvamTtsModel, 'bulbul:v3');
+  assert.equal(store.settings().sarvamSttModel, 'saaras:v4');
+  store.close();
+});
+
+test('the integration endpoint is disabled without a secret and validation lists fields', async () => {
+  const { app } = await appWith();
+  try {
+    const disabled = await app.inject({
+      method: 'POST',
+      url: '/integrations/v1/call-requests',
+      headers: {
+        'content-type': 'application/json',
+        'x-signature': 't=1,v1=0',
+      },
+      payload: '{}',
+    });
+    assert.equal(disabled.statusCode, 503);
+    const headers = await login(app);
+    const invalid = await app.inject({
+      method: 'POST',
+      url: `/api/practice-sessions/${randomUUID()}/offer`,
+      headers,
+      payload: { sdp: 'x' },
+    });
+    assert.equal(invalid.statusCode, 400);
+    assert.deepEqual(invalid.json().fields, ['type']);
+  } finally {
+    await app.close();
+  }
 });

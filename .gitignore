@@ -7,3 +7,8 @@ dist/
 build/
 *.log
 coverage/
+# Python (services/voice-agent)
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/

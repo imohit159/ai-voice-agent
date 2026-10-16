@@ -6,14 +6,14 @@ Change a decision here before changing the code that depends on it.
 
 ## Approach
 
-| #   | Decision        | Choice                                                                                                   |
-| --- | --------------- | -------------------------------------------------------------------------------------------------------- |
-| 1   | Migration       | Evolve this repository in stages; no greenfield rewrite.                                                 |
-| 2   | API framework   | Keep Fastify.                                                                                            |
-| 3   | AI approach     | Both, selectable: Gemini Live (speech-to-speech) and Sarvam STT → `sarvam-m` → Sarvam TTS (cascaded).    |
-| 4   | Practice mode   | Keep, served by Pipecat's WebRTC transport running the same bot as phone calls. Test-only call mode.     |
-| 5   | Business system | Not yet available. Define contracts from the architecture brief and ship a mock business system for E2E. |
-| 6   | First use case  | Order confirmation.                                                                                      |
+| #   | Decision        | Choice                                                                                                                                                                                       |
+| --- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Migration       | Evolve this repository in stages; no greenfield rewrite.                                                                                                                                     |
+| 2   | API framework   | Keep Fastify.                                                                                                                                                                                |
+| 3   | AI approach     | Both, selectable: Gemini Live (speech-to-speech) and Sarvam STT → `sarvam-105b-conversations` → Sarvam TTS (cascaded). `sarvam-m` was replaced in stage 4: Pipecat 1.12 does not support it. |
+| 4   | Practice mode   | Keep, served by Pipecat's WebRTC transport running the same bot as phone calls. Test-only call mode.                                                                                         |
+| 5   | Business system | Not yet available. Define contracts from the architecture brief and ship a mock business system for E2E.                                                                                     |
+| 6   | First use case  | Order confirmation.                                                                                                                                                                          |
 
 ## Infrastructure
 
@@ -50,7 +50,12 @@ Each table is added in the stage that first uses it.
 1. **Contracts and intake.** ✅ Call request/result contracts ([integration contract](integration-contract.md)), HMAC signing, versioned SQLite migrations, `call_requests` table, signed intake endpoint, mock business system (sender).
 2. **Call management.** ✅ `call_attempts` and `result_deliveries` tables; `call-management` module (scheduler with calling hours, retry backoff, concurrency limit, restart recovery, reconciliation) behind a telephony port with a simulated provider; transactional result outbox with signed, retried delivery; mock business system result receiver.
 3. **Plivo.** ✅ Plivo telephony adapter (dial, V3-signed ring/answer/hangup callbacks, hangup-cause mapping, call-record reconciliation), `<Stream>` answer XML with a short-lived voice-session token, Plivo as the default provider with startup validation. Exotel removed; the legacy voice module now serves browser practice only.
-4. **Pipecat service.** Python service with Plivo serializer and WebRTC transport, both model stages, internal API client, `transcript_entries` table. Remove the Node `voice` module.
+4. **Pipecat service.** ✅ Python service (`services/voice-agent`, Pipecat 1.12) with the Plivo stream (V3-verified) and WebRTC practice, both AI stages sharing one bot, internal session API (claim once, transcript batches, end) with Node as sole writer, `transcript_entries` table, voice-agent readiness gating for dialling. Legacy Node voice module, calls module and browser worklet removed; AI keys moved to the voice agent only.
 5. **Order confirmation.** Conversation plan, identity check, outcome tool, backend action validation.
 6. **Dashboard.** `users` and `audit_events` tables; React app with roles, call history, transcripts, delivery status, practice calls.
 7. **Deployment.** Docker Compose, Caddy, secrets, retention job, backups, end-to-end and concurrency tests.
+
+## Known issues to resolve in stage 5
+
+- **Sarvam turn splitting.** In live testing, a customer sentence with a comma pause ("हाँ जी, मैं … बोल रहा हूँ") was split into two turns and the agent answered the fragment. Tune VAD stop time and smart-turn settings against representative Hindi/Hinglish audio, and measure response delay for both AI stages.
+- **Slow teardown mid-reply.** Hanging up while Gemini is generating can delay the session end by up to ~30 s while Pipecat waits for the in-flight response. Phone attempts finish from Plivo's hangup callback regardless; practice attempts finish late.
