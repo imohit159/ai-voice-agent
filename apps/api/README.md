@@ -26,8 +26,11 @@ src/
 │   │   ├── routes.ts             Signed call-request intake
 │   │   ├── service.ts            Result outbox and delivery retries
 │   │   ├── repository.ts         result_deliveries persistence
+│   │   ├── delivery.routes.ts    Delivery status and admin retry
 │   │   └── infrastructure/       Signed webhook client
 │   ├── auth/                     Operator sessions, login/logout, password checks
+│   ├── auth/                     Users, roles, scrypt passwords, sessions, team routes
+│   ├── audit/                    Append-only activity log
 │   └── workspace/                Dashboard state, agent settings, demo order
 └── platform/
     ├── http/                     Shared headers, error responses, operator guards

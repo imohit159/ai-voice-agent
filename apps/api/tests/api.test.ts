@@ -49,7 +49,10 @@ async function login(app: Awaited<ReturnType<typeof createApp>>) {
     method: 'POST',
     url: '/api/login',
     headers: { origin },
-    payload: { password: process.env.ADMIN_PASSWORD },
+    payload: {
+      email: 'admin@orderline.local',
+      password: process.env.ADMIN_PASSWORD,
+    },
   });
   assert.equal(response.statusCode, 200);
   return {
@@ -69,7 +72,7 @@ test('API requires authentication, rejects hostile origin/host, and exposes no s
         await app.inject({
           method: 'POST',
           url: '/api/login',
-          payload: { password: 'wrong' },
+          payload: { email: 'admin@orderline.local', password: 'wrong' },
         })
       ).statusCode,
       403,
@@ -413,6 +416,215 @@ test('the integration endpoint is disabled without a secret and validation lists
     });
     assert.equal(invalid.statusCode, 400);
     assert.deepEqual(invalid.json().fields, ['type']);
+  } finally {
+    await app.close();
+  }
+});
+
+async function loginAs(
+  app: Awaited<ReturnType<typeof createApp>>,
+  email: string,
+  password: string,
+) {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/login',
+    headers: { origin },
+    payload: { email, password },
+  });
+  return {
+    status: response.statusCode,
+    headers: {
+      cookie: String(response.headers['set-cookie'] ?? '').split(';')[0]!,
+      origin,
+    },
+  };
+}
+
+test('viewers read but cannot administer; admins manage users safely', async () => {
+  const { app } = await appWith();
+  try {
+    const admin = await login(app);
+    const session = (
+      await app.inject({ url: '/api/session', headers: admin })
+    ).json();
+    assert.equal(session.user.role, 'admin');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: admin,
+      payload: {
+        email: 'viewer@example.com',
+        name: 'Viewer',
+        role: 'viewer',
+        password: 'viewer-password-123',
+      },
+    });
+    assert.equal(created.statusCode, 200);
+    const viewerId = created.json().user.id;
+    assert.ok(!created.body.includes('viewer-password-123'));
+    assert.ok(!created.body.includes('scrypt'));
+
+    const viewer = await loginAs(
+      app,
+      'VIEWER@example.com',
+      'viewer-password-123',
+    );
+    assert.equal(viewer.status, 200, 'email is case-insensitive');
+    assert.equal(
+      (await app.inject({ url: '/api/call-attempts', headers: viewer.headers }))
+        .statusCode,
+      200,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          url: '/api/result-deliveries',
+          headers: viewer.headers,
+        })
+      ).statusCode,
+      200,
+    );
+    for (const route of [
+      { method: 'PUT' as const, url: '/api/settings', payload: {} },
+      { method: 'GET' as const, url: '/api/users' },
+      { method: 'GET' as const, url: '/api/audit-events' },
+      { method: 'POST' as const, url: '/api/demo/reset' },
+      {
+        method: 'POST' as const,
+        url: `/api/result-deliveries/${randomUUID()}/retry`,
+      },
+    ])
+      assert.equal(
+        (await app.inject({ ...route, headers: viewer.headers })).statusCode,
+        403,
+        route.url,
+      );
+
+    // Disabling a user ends their existing session immediately.
+    assert.equal(
+      (
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/users/${viewerId}`,
+          headers: admin,
+          payload: { disabled: true },
+        })
+      ).statusCode,
+      200,
+    );
+    assert.equal(
+      (await app.inject({ url: '/api/call-attempts', headers: viewer.headers }))
+        .statusCode,
+      401,
+    );
+    assert.equal(
+      (await loginAs(app, 'viewer@example.com', 'viewer-password-123')).status,
+      401,
+    );
+
+    // The last administrator cannot lock everyone out.
+    const adminId = session.user.id;
+    const selfDemote = await app.inject({
+      method: 'PATCH',
+      url: `/api/users/${adminId}`,
+      headers: admin,
+      payload: { role: 'viewer' },
+    });
+    assert.equal(selfDemote.statusCode, 409);
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: admin,
+      payload: {
+        email: 'viewer@example.com',
+        name: 'Again',
+        role: 'viewer',
+        password: 'another-password-1',
+      },
+    });
+    assert.equal(duplicate.statusCode, 409);
+    const weak = await app.inject({
+      method: 'POST',
+      url: '/api/users',
+      headers: admin,
+      payload: {
+        email: 'weak@example.com',
+        name: 'Weak',
+        role: 'viewer',
+        password: 'short',
+      },
+    });
+    assert.deepEqual(weak.json().fields, ['password']);
+  } finally {
+    await app.close();
+  }
+});
+
+test('changing your password signs out other sessions but keeps this one', async () => {
+  const { app } = await appWith();
+  try {
+    const first = await login(app);
+    const second = await login(app);
+    const changed = await app.inject({
+      method: 'POST',
+      url: '/api/me/password',
+      headers: first,
+      payload: {
+        currentPassword: process.env.ADMIN_PASSWORD,
+        newPassword: 'a-brand-new-password-1',
+      },
+    });
+    assert.equal(changed.statusCode, 200);
+    const renewed = {
+      cookie: String(changed.headers['set-cookie']).split(';')[0]!,
+      origin,
+    };
+    assert.equal(
+      (await app.inject({ url: '/api/state', headers: renewed })).statusCode,
+      200,
+    );
+    assert.equal(
+      (await app.inject({ url: '/api/state', headers: second })).statusCode,
+      401,
+    );
+    assert.equal(
+      (await loginAs(app, 'admin@orderline.local', 'a-brand-new-password-1'))
+        .status,
+      200,
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test('the audit trail records logins, settings changes and practice starts', async () => {
+  const { app } = await appWith();
+  try {
+    const admin = await login(app);
+    const settings = (
+      await app.inject({ url: '/api/state', headers: admin })
+    ).json().settings;
+    await app.inject({
+      method: 'PUT',
+      url: '/api/settings',
+      headers: admin,
+      payload: settings,
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/practice-sessions',
+      headers: admin,
+    });
+    const events = (
+      await app.inject({ url: '/api/audit-events', headers: admin })
+    ).json().events;
+    assert.deepEqual(
+      events.map((e: { action: string }) => e.action).reverse(),
+      ['auth.login', 'settings.updated', 'practice.started'],
+    );
+    assert.equal(events[0].userEmail, 'admin@orderline.local');
   } finally {
     await app.close();
   }

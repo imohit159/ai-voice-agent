@@ -1267,3 +1267,38 @@ summary {
     transition: none !important;
   }
 }
+
+/* React dashboard additions */
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: contents;
+}
+.inline-form {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.inline-form input {
+  max-width: 11rem;
+}
+tr[aria-selected='true'] {
+  background: var(--selected-row, rgba(0, 0, 0, 0.04));
+}
+.badge.delivered,
+.badge.active,
+.badge.configured {
+  color: var(--good, #1d6b43);
+}
+.badge.disabled,
+.badge.missing {
+  color: var(--muted-text, #6b6b6b);
+}
+.settings-form fieldset > button {
+  margin-top: 0.75rem;
+}
+.settings-grid + .panel {
+  margin-top: 1.5rem;
+}

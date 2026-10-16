@@ -145,7 +145,7 @@ async function callbackApp() {
   await app.register(formbody);
   registerHttpSecurity(app, {
     origin: 'http://localhost:3000',
-    isLoggedIn: () => false,
+    resolve: () => null,
   });
   registerPlivoRoutes(app, h.calls, {
     authToken,

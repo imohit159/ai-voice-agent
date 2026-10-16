@@ -1,4 +1,4 @@
-import type { Order, Settings } from './domain.js';
+import type { AuditAction, Order, Settings, UserRole } from './domain.js';
 import type {
   AttemptStatus,
   CallOutcome,
@@ -62,4 +62,43 @@ export interface PracticeOffer {
 export interface PracticeAnswer {
   sdp: string;
   type: 'answer';
+}
+
+export interface SessionUser {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+}
+
+export interface SessionInfo {
+  authenticated: boolean;
+  user: SessionUser | null;
+}
+
+export interface UserSummary extends SessionUser {
+  disabled: boolean;
+  createdAt: string;
+}
+
+export interface ResultDeliverySummary {
+  eventId: string;
+  requestId: string;
+  attemptId: string | null;
+  requestStatus: string;
+  status: 'pending' | 'delivered' | 'failed';
+  deliveryAttempts: number;
+  lastError: string | null;
+  nextAttemptAt: string;
+  deliveredAt: string | null;
+  createdAt: string;
+}
+
+export interface AuditEventSummary {
+  id: number;
+  action: AuditAction;
+  userEmail: string | null;
+  subjectType: string | null;
+  subjectId: string | null;
+  createdAt: string;
 }

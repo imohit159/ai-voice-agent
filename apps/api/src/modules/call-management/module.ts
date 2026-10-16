@@ -27,6 +27,7 @@ import {
 import { registerVoiceSessionRoutes } from './voice-session.routes.js';
 import { registerOperatorRoutes } from './operator.routes.js';
 import type { ProviderEvent, Telephony } from './telephony.js';
+import type { AuditRecorder } from '../audit/module.js';
 
 export type { AttemptFinishedEvent, CallManagement } from './service.js';
 export { CallManagementError } from './service.js';
@@ -47,6 +48,7 @@ export async function startCallManagement(
     onAttemptFinished: (event: AttemptFinishedEvent) => void;
     agentConfig: () => AgentConfig;
     practiceOrder: () => Pick<CallRequest, 'customer' | 'order'>;
+    audit: AuditRecorder;
     /** Overrides the configured provider, for tests. */
     telephony?: (emit: (event: ProviderEvent) => void) => Telephony;
     /** Overrides the voice agent client, for tests. */
@@ -143,6 +145,7 @@ export async function startCallManagement(
         config.MAX_CALL_SECONDS + SESSION_TOKEN_GRACE_SECONDS,
       ),
     voiceAgent,
+    audit: options.audit,
   });
 
   calls.recoverAfterRestart();

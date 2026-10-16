@@ -9,10 +9,8 @@ import type { AgentConfig } from '@orderline/contracts/voice';
 import { config, defaultSettings } from './config/index.js';
 import { Store } from './platform/persistence/store.js';
 import { registerHttpSecurity } from './platform/http/security.js';
-import {
-  createOperatorSession,
-  registerAuthRoutes,
-} from './modules/auth/index.js';
+import { startAudit } from './modules/audit/module.js';
+import { startAuth } from './modules/auth/module.js';
 import {
   createWorkspace,
   registerWorkspaceRoutes,
@@ -49,8 +47,9 @@ export async function createApp(
   await app.register(cookie);
   await app.register(rateLimit, { max: 150, timeWindow: '1 minute' });
   await app.register(formbody);
-  const session = createOperatorSession();
-  registerHttpSecurity(app, session);
+  const audit = startAudit(app, store.db);
+  const auth = await startAuth(store.db, audit.record);
+  registerHttpSecurity(app, auth.session);
   app.get('/health', async () => ({ status: 'ok' }));
 
   // The attempt keeps this snapshot for its whole life, whatever the dashboard changes later.
@@ -89,12 +88,13 @@ export async function createApp(
   };
 
   // Register on the same scope so every route shares authentication and error handling.
-  registerAuthRoutes(app, session);
-  const integrations = startIntegrations(app, store.db);
+  auth.registerRoutes(app);
+  const integrations = startIntegrations(app, store.db, audit.record);
   const callManagement = await startCallManagement(app, store.db, {
     onAttemptFinished: integrations.recordAttemptResult,
     agentConfig,
     practiceOrder,
+    audit: audit.record,
     telephony: options.telephony,
     voiceAgent: options.voiceAgent,
   });
@@ -113,6 +113,7 @@ export async function createApp(
         maxConcurrentCalls: config.MAX_CONCURRENT_CALLS,
       },
     }),
+    audit.record,
   );
 
   if (existsSync(resolve(webDist, 'index.html'))) {

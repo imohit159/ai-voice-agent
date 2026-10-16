@@ -8,6 +8,7 @@ import type {
 } from '@orderline/contracts/api';
 import type { CallRequest } from '@orderline/contracts/integration';
 import { ApiError } from '../../platform/http/errors.js';
+import type { AuditRecorder } from '../audit/module.js';
 import type { CallManagement } from './service.js';
 import type { VoiceAgentClient } from './infrastructure/voice-agent.js';
 
@@ -23,6 +24,7 @@ type Options = {
   practiceOrder: () => Pick<CallRequest, 'customer' | 'order'>;
   issueSessionToken: (attemptId: string) => string;
   voiceAgent: VoiceAgentClient;
+  audit: AuditRecorder;
 };
 
 /** Operator dashboard endpoints; authentication and origin checks apply to all /api routes. */
@@ -42,15 +44,31 @@ export function registerOperatorRoutes(
     '/api/call-attempts/:id',
     async (request): Promise<CallAttemptDetail> => {
       const { id } = idParams.parse(request.params);
-      return calls.attemptDetail(id);
+      const detail = calls.attemptDetail(id);
+      // Customer conversations are personal data; practice sessions are not.
+      if (detail.attempt.source === 'integration')
+        options.audit({
+          userId: request.user!.id,
+          action: 'transcript.viewed',
+          subjectType: 'call_attempt',
+          subjectId: id,
+        });
+      return detail;
     },
   );
   app.post(
     '/api/practice-sessions',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
-    async (): Promise<PracticeSession> => ({
-      attemptId: (await calls.startPracticeSession(options.practiceOrder())).id,
-    }),
+    async (request): Promise<PracticeSession> => {
+      const { id } = await calls.startPracticeSession(options.practiceOrder());
+      options.audit({
+        userId: request.user!.id,
+        action: 'practice.started',
+        subjectType: 'call_attempt',
+        subjectId: id,
+      });
+      return { attemptId: id };
+    },
   );
   app.post(
     '/api/practice-sessions/:id/offer',

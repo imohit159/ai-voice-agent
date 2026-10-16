@@ -9,6 +9,15 @@ import type {
 } from '../call-management/module.js';
 import type { ResultDeliveryRepository } from './repository.js';
 
+export class ResultDeliveryError extends Error {
+  constructor(
+    public statusCode: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
 export type WebhookResponse = { ok: true } | { ok: false; error: string };
 
 type LogEvent = (fields: Record<string, unknown>, message: string) => void;
@@ -136,5 +145,17 @@ export function createResults({
     }
   }
 
-  return { record, deliverDue };
+  /**
+   * Manual recovery after automatic retries gave up: one more immediate attempt.
+   * If it fails again the delivery returns to failed for another decision.
+   */
+  function retryFailed(eventId: string) {
+    if (!deliveries.requeueFailed(eventId, now().toISOString()))
+      throw new ResultDeliveryError(
+        409,
+        'Only failed deliveries can be retried.',
+      );
+  }
+
+  return { record, deliverDue, retryFailed, list: deliveries.summaries };
 }

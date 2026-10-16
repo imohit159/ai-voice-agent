@@ -11,11 +11,27 @@ import {
   callRequestSchema,
   callResultSchema,
 } from '@orderline/contracts/integration';
-import { config } from '../src/config/index.js';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { z } from 'zod';
+import { workspaceRoot } from '../src/config/paths.js';
 import {
   signBody,
   verifySignature,
 } from '../src/platform/security/signatures.js';
+
+// A stand-in for an external system: it reads only the four values it needs,
+// not the API's full configuration, so it runs without telephony or AI setup.
+const envFile = resolve(workspaceRoot, '.env');
+if (existsSync(envFile)) process.loadEnvFile(envFile);
+const config = z
+  .object({
+    PORT: z.coerce.number().int().default(3000),
+    TEST_PHONE_NUMBER: z.string().default('+919625532959'),
+    INTEGRATION_INBOUND_SECRET: z.string().default(''),
+    INTEGRATION_RESULT_SECRET: z.string().default(''),
+  })
+  .parse(process.env);
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,

@@ -9,6 +9,21 @@ import {
   SARVAM_TTS_MODELS,
 } from './models.js';
 
+export const USER_ROLES = ['admin', 'viewer'] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+export const AUDIT_ACTIONS = [
+  'auth.login',
+  'transcript.viewed',
+  'settings.updated',
+  'practice.started',
+  'user.created',
+  'user.updated',
+  'user.password_reset',
+  'delivery.retried',
+] as const;
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
 export interface Order {
   id: string;
   customerName: string;

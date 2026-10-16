@@ -8,12 +8,18 @@ import { createResultDeliveryRepository } from './repository.js';
 import { createResults } from './service.js';
 import { postSignedJson } from './infrastructure/webhook.js';
 import { registerIntegrationRoutes } from './routes.js';
+import { registerDeliveryRoutes } from './delivery.routes.js';
+import type { AuditRecorder } from '../audit/module.js';
 
 const DELIVERY_INTERVAL_MS = 5_000;
 // Roughly 1m, 5m, 15m, 1h, 3h, 6h: about 10.5 hours of retries before manual recovery.
 const DELIVERY_RETRY_DELAYS_SECONDS = [60, 300, 900, 3_600, 10_800, 21_600];
 
-export function startIntegrations(app: FastifyInstance, db: DatabaseSync) {
+export function startIntegrations(
+  app: FastifyInstance,
+  db: DatabaseSync,
+  audit: AuditRecorder,
+) {
   const { INTEGRATION_RESULT_URL: url, INTEGRATION_RESULT_SECRET: secret } =
     config;
   if (!url || !secret)
@@ -35,6 +41,7 @@ export function startIntegrations(app: FastifyInstance, db: DatabaseSync) {
     app.log,
   );
   app.addHook('onClose', stopDelivery);
+  registerDeliveryRoutes(app, results, audit);
   return {
     recordAttemptResult: results.record,
     registerRoutes: (intake: Pick<CallManagement, 'acceptCallRequest'>) =>

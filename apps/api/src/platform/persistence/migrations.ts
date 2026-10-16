@@ -96,4 +96,27 @@ export const migrations: readonly string[] = [
     created_at TEXT NOT NULL
   );
   CREATE INDEX transcript_entries_attempt ON transcript_entries(attempt_id, id);`,
+
+  // 6: dashboard users with roles, and the audit trail of who did what.
+  `CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'viewer')),
+    password_hash TEXT NOT NULL,
+    session_version INTEGER NOT NULL DEFAULT 1,
+    disabled_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE audit_events (
+    id INTEGER PRIMARY KEY,
+    user_id TEXT REFERENCES users(id),
+    action TEXT NOT NULL,
+    subject_type TEXT,
+    subject_id TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX audit_events_created ON audit_events(created_at);
+  CREATE INDEX audit_events_subject ON audit_events(subject_type, subject_id);`,
 ];

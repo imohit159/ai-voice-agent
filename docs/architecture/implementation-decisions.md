@@ -52,8 +52,12 @@ Each table is added in the stage that first uses it.
 3. **Plivo.** ✅ Plivo telephony adapter (dial, V3-signed ring/answer/hangup callbacks, hangup-cause mapping, call-record reconciliation), `<Stream>` answer XML with a short-lived voice-session token, Plivo as the default provider with startup validation. Exotel removed; the legacy voice module now serves browser practice only.
 4. **Pipecat service.** ✅ Python service (`services/voice-agent`, Pipecat 1.12) with the Plivo stream (V3-verified) and WebRTC practice, both AI stages sharing one bot, internal session API (claim once, transcript batches, end) with Node as sole writer, `transcript_entries` table, voice-agent readiness gating for dialling. Legacy Node voice module, calls module and browser worklet removed; AI keys moved to the voice agent only.
 5. **Order confirmation.** ✅ Conversation plan (AI disclosure, identity check before any order detail, read-back, decision), `record_outcome` and `end_call` tools, API validation of every reported outcome (allowed for the use case, callback time only for `callback_requested` and within 7 days, one immutable outcome per attempt), outcome delivered in the result, guaranteed spoken goodbye before the cascade hangs up.
-6. **Dashboard.** `users` and `audit_events` tables; React app with roles, call history, transcripts, delivery status, practice calls.
+6. **Dashboard.** ✅ React dashboard (feature folders, one API client, TanStack Query for server state) with practice, call activity and transcripts, result delivery with manual retry, agent settings, and team access. `users` (admin/viewer, scrypt passwords, per-user session versions so disabling or changing a user signs them out everywhere) and `audit_events` (sign-ins, customer transcript views, settings, user changes, delivery retries). Kept the existing design system instead of shadcn/ui (that would need a Tailwind migration); practice keeps the API-proxied browser WebRTC client instead of Pipecat's React client, so the session token never reaches the browser.
 7. **Deployment.** Docker Compose, Caddy, secrets, retention job, backups, end-to-end and concurrency tests.
+
+## Response delay requirement
+
+Agreed 16 October 2026: from the customer stopping speaking to the agent's voice starting, **median ≤ 1.0 s and 95% of turns ≤ 1.5 s, measured on real Plivo calls**, for both AI approaches. Current measurements (below) do not meet it. Before go-live: instrument each stage (end-of-turn, STT, model, TTS, network) with metrics validated against client-measured audio, then tune the largest contributor first.
 
 ## Stage 5 acceptance results (16 October 2026)
 

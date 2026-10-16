@@ -2,13 +2,13 @@
 
 An outbound voice agent that calls customers from an Indian number, speaks Hindi and English, and returns a structured result to the client's business system. The target design is in the [architecture brief](docs/architecture/customer-care-voice-agent-architecture.md); the agreed decisions and build stages are in [implementation decisions](docs/architecture/implementation-decisions.md).
 
-**Current state (stage 5 of 7):** the business system requests calls through a signed API; the API schedules them within calling hours, dials through **Plivo**, and retries unanswered calls. When a customer answers, Plivo streams the audio to the **Pipecat voice agent**, which discloses that it is an AI, checks it is speaking to the right person before sharing any order detail, reads the order back and asks for a decision. It records one of six outcomes, which the API validates before it reaches the business system, then says goodbye and hangs up. Browser practice runs the same bot over WebRTC.
+**Current state (stage 6 of 7):** the business system requests calls through a signed API; the API schedules them within calling hours, dials through **Plivo**, and retries unanswered calls. When a customer answers, Plivo streams the audio to the **Pipecat voice agent**, which discloses that it is an AI, checks it is speaking to the right person before sharing any order detail, reads the order back and asks for a decision. It records one of six outcomes, which the API validates before it reaches the business system, then says goodbye and hangs up. Browser practice runs the same bot over WebRTC. The team dashboard shows every call, transcript, outcome and result delivery, with admin and viewer roles and an audit trail.
 
 ## Workspace
 
 ```text
 apps/api/               Fastify API: call management, integrations, dashboard API, tests
-apps/web/               Vite dashboard (replaced by a React dashboard in stage 6)
+apps/web/               React dashboard (Vite, TanStack Query)
 packages/contracts/     Shared schemas and types: integration and voice-session contracts
 services/voice-agent/   Python Pipecat service: Plivo stream, WebRTC practice, AI pipelines
 ```
@@ -32,6 +32,14 @@ For development without placing real calls, set `TELEPHONY_PROVIDER=simulated`. 
 
 `pnpm dev` watches the API and contracts and serves the latest built UI on port 3000. For frontend hot reload, set `APP_ORIGIN=http://localhost:5173`, then run `pnpm dev:all`.
 
+## Dashboard and team access
+
+Open **http://localhost:3000** and sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`. That first administrator is created only while no users exist; add your team under **Team access**.
+
+- **Viewers** run practice and review call activity, transcripts and result delivery.
+- **Administrators** also change agent settings, manage users and retry failed result deliveries.
+- Opening a customer transcript, signing in, and every settings or user change is recorded in the activity log. Disabling a user, changing their role or resetting their password signs them out everywhere.
+
 ## Voice practice
 
 **Agent & connections** selects the AI approach: Gemini Live (speech-to-speech) or Sarvam (Saaras STT → `sarvam-105b-conversations` → Bulbul TTS). The keys live only with the voice agent:
@@ -41,7 +49,7 @@ GEMINI_API_KEY=your-gemini-key
 SARVAM_API_KEY=your-sarvam-model-api-key
 ```
 
-On **Orders**, **Start voice practice** connects your microphone to the voice agent over WebRTC using the sample order. It never places a phone call, and its result is never sent to the business system. Each attempt stores a snapshot of the AI configuration it started with; there is no automatic provider fallback. If the voice agent is not running, or lacks the key for the selected provider, practice is unavailable and scheduled calls wait rather than dial.
+On **Voice practice**, **Start voice practice** connects your microphone to the voice agent over WebRTC using the sample order. It never places a phone call, and its result is never sent to the business system. Each attempt stores a snapshot of the AI configuration it started with; there is no automatic provider fallback. If the voice agent is not running, or lacks the key for the selected provider, practice is unavailable and scheduled calls wait rather than dial.
 
 Use a **Model APIs subscription key** from [Sarvam key management](https://dashboard.sarvam.ai/key-management) for `SARVAM_API_KEY`.
 
@@ -108,7 +116,7 @@ The project includes `.cursor/mcp.json` with the official remote server `https:/
 
 ## Before production
 
-Planned in later stages: the role-based dashboard with transcript audit (6), and Docker Compose deployment with Caddy, TLS, retention jobs, backups and latency monitoring (7). Known issues and live test results are in the [implementation decisions](docs/architecture/implementation-decisions.md). Agree transcript retention, calling permissions and the business system's real endpoints before handling customer data.
+Planned for stage 7: Docker Compose deployment with Caddy, TLS, retention jobs, backups and latency monitoring (7). Known issues and live test results are in the [implementation decisions](docs/architecture/implementation-decisions.md). Agree transcript retention, calling permissions and the business system's real endpoints before handling customer data.
 
 ## Reference documentation
 

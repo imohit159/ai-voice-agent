@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { CallResult } from '@orderline/contracts/integration';
+import type { ResultDeliverySummary } from '@orderline/contracts/api';
 
 export interface ResultDelivery {
   eventId: string;
@@ -75,6 +76,40 @@ export function createResultDeliveryRepository(db: DatabaseSync) {
         .prepare('SELECT * FROM result_deliveries WHERE event_id=?')
         .get(eventId) as Row | undefined;
       return row ? toDelivery(row) : null;
+    },
+    summaries(
+      status: ResultDelivery['status'] | undefined,
+      limit: number,
+    ): ResultDeliverySummary[] {
+      const rows = db
+        .prepare(
+          `SELECT * FROM result_deliveries ${status ? 'WHERE status = ?' : ''}
+            ORDER BY created_at DESC LIMIT ?`,
+        )
+        .all(...(status ? [status] : []), limit) as Row[];
+      return rows.map(toDelivery).map((delivery) => ({
+        eventId: delivery.eventId,
+        requestId: delivery.payload.requestId,
+        attemptId: delivery.attemptId,
+        requestStatus: delivery.payload.requestStatus,
+        status: delivery.status,
+        deliveryAttempts: delivery.deliveryAttempts,
+        lastError: delivery.lastError,
+        nextAttemptAt: delivery.nextAttemptAt,
+        deliveredAt: delivery.deliveredAt,
+        createdAt: delivery.createdAt,
+      }));
+    },
+    /** Puts a failed delivery back in the queue; false if it is not failed. */
+    requeueFailed(eventId: string, at: string): boolean {
+      return (
+        db
+          .prepare(
+            `UPDATE result_deliveries SET status='pending', next_attempt_at=?
+              WHERE event_id=? AND status='failed'`,
+          )
+          .run(at, eventId).changes === 1
+      );
     },
     recordAttempt(
       eventId: string,

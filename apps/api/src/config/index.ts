@@ -13,6 +13,8 @@ const schema = z
     HOST: z.enum(['127.0.0.1', '0.0.0.0']).default('127.0.0.1'),
     PORT: z.coerce.number().int().min(1).max(65535).default(3000),
     APP_ORIGIN: z.url().default('http://localhost:3000'),
+    // Only used to create the first administrator when the users table is empty.
+    ADMIN_EMAIL: z.email().default('admin@orderline.local'),
     ADMIN_PASSWORD: z.string().min(16),
     SESSION_SECRET: z.string().min(32),
     DATABASE_PATH: z.string().default('data/agent.sqlite'),

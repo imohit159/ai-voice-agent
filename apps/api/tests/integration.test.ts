@@ -31,7 +31,7 @@ async function intakeApp() {
   const app = Fastify({ logger: false });
   registerHttpSecurity(app, {
     origin: 'http://localhost:3000',
-    isLoggedIn: () => false,
+    resolve: () => null,
   });
   await registerIntegrationRoutes(app, h.calls, secret);
   const send = (payload: unknown, signature?: string) => {
@@ -344,4 +344,39 @@ test('the result contract rejects unknown outcomes', () => {
     }).success,
     false,
   );
+});
+
+test('a failed delivery can be retried once by hand, and only when failed', async () => {
+  const outcomes: WebhookResponse[] = [
+    { ok: false, error: 'HTTP 500' },
+    { ok: false, error: 'HTTP 500' },
+    { ok: false, error: 'HTTP 500' },
+    { ok: true },
+  ];
+  const h = harness({ send: async () => outcomes.shift()! });
+  h.calls.acceptCallRequest(callRequest());
+  await h.calls.runSchedule();
+  const call = h.provider.dialled[0]!;
+  h.calls.applyProviderEvent({
+    attemptId: call.attemptId,
+    providerCallId: call.providerCallId,
+    status: 'busy',
+  });
+  for (const minutes of [0, 1, 5]) {
+    h.advance(minutes);
+    await h.results.deliverDue();
+  }
+  const [failed] = h.outbox();
+  assert.equal(failed!.status, 'failed');
+  assert.throws(() => h.results.retryFailed(crypto.randomUUID()), {
+    statusCode: 409,
+  });
+
+  h.results.retryFailed(failed!.eventId);
+  assert.throws(() => h.results.retryFailed(failed!.eventId), {
+    statusCode: 409,
+  });
+  await h.results.deliverDue();
+  assert.equal(h.outbox()[0]!.status, 'delivered');
+  assert.equal(h.results.list('delivered', 10)[0]!.requestId, 'req-1001');
 });

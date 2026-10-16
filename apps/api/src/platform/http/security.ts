@@ -1,17 +1,34 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
+import type { SessionUser } from '@orderline/contracts/api';
 import { config } from '../../config/index.js';
 import { ApiError } from './errors.js';
 
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** The signed-in dashboard user, resolved fresh from the database per request. */
+    user: SessionUser | null;
+  }
+}
+
 export interface OperatorSession {
   origin: string;
-  isLoggedIn: (token?: string) => boolean;
+  /** Resolves a session cookie to an active user, or null. */
+  resolve: (token?: string) => SessionUser | null;
+}
+
+const PUBLIC_API_PATHS = new Set(['/api/login', '/api/session']);
+
+export async function requireAdmin(request: FastifyRequest) {
+  if (request.user?.role !== 'admin')
+    throw new ApiError(403, 'This action requires an administrator.');
 }
 
 export function registerHttpSecurity(
   app: FastifyInstance,
-  { origin, isLoggedIn }: OperatorSession,
+  { origin, resolve }: OperatorSession,
 ) {
+  app.decorateRequest('user', null);
   const allowedHosts = new Set([
     'localhost',
     '127.0.0.1',
@@ -36,12 +53,9 @@ export function registerHttpSecurity(
         throw new ApiError(403, 'Unrecognized host.');
       if (request.method !== 'GET' && request.headers.origin !== origin)
         throw new ApiError(403, 'Invalid request origin.');
-      const path = request.url.split('?')[0];
-      if (
-        path !== '/api/login' &&
-        path !== '/api/session' &&
-        !isLoggedIn(request.cookies.session)
-      )
+      request.user = resolve(request.cookies.session);
+      const path = request.url.split('?')[0]!;
+      if (!PUBLIC_API_PATHS.has(path) && !request.user)
         throw new ApiError(401, 'Sign in to continue.');
     }
   });
