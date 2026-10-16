@@ -2,52 +2,87 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import { settingsSchema, type Settings } from '@orderline/contracts';
+import { MAX_CALL_ATTEMPTS } from '@orderline/contracts/integration';
 import { workspaceRoot } from './paths.js';
 
 const envFile = resolve(workspaceRoot, '.env');
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 const optional = z.string().trim().default('');
-const schema = z.object({
-  HOST: z.enum(['127.0.0.1', '0.0.0.0']).default('127.0.0.1'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  APP_ORIGIN: z.url().default('http://localhost:3000'),
-  ADMIN_PASSWORD: z.string().min(16),
-  SESSION_SECRET: z.string().min(32),
-  DATABASE_PATH: z.string().default('data/agent.sqlite'),
-  GEMINI_API_KEY: optional,
-  SARVAM_API_KEY: optional,
-  SARVAM_VOICE_AGENTS_API_KEY: optional,
-  VOICE_PROVIDER: settingsSchema.shape.voiceProvider,
-  SARVAM_MODEL: settingsSchema.shape.sarvamModel,
-  SARVAM_STT_MODEL: settingsSchema.shape.sarvamSttModel,
-  SARVAM_TTS_MODEL: settingsSchema.shape.sarvamTtsModel,
-  GEMINI_LIVE_MODEL: settingsSchema.shape.geminiModel,
-  TEST_PHONE_NUMBER: z
-    .string()
-    .regex(/^\+[1-9]\d{7,14}$/)
-    .default('+919625532959'),
-  STORE_NAME: z.string().trim().min(1).max(80).default('Demo Store'),
-  AGENT_LANGUAGE: z
-    .enum(['Hindi', 'English', 'Hindi and English'])
-    .default('Hindi and English'),
-  EXOTEL_ACCOUNT_SID: optional,
-  EXOTEL_API_KEY: optional,
-  EXOTEL_API_TOKEN: optional,
-  EXOTEL_CALLER_ID: optional,
-  EXOTEL_REGION: z.enum(['in', 'sg']).default('in'),
-  EXOTEL_FLOW_ID: z.string().regex(/^\d*$/).max(20).default(''),
-  PUBLIC_BASE_URL: optional,
-  ENABLE_PHONE_CALLS: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
-  MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(5).default(2),
-  MAX_CALL_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
-  // Blank disables the business-system endpoint; it then answers 503.
-  INTEGRATION_INBOUND_SECRET: z
-    .union([z.literal(''), z.string().min(32)])
-    .default(''),
-});
+const schema = z
+  .object({
+    HOST: z.enum(['127.0.0.1', '0.0.0.0']).default('127.0.0.1'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+    APP_ORIGIN: z.url().default('http://localhost:3000'),
+    ADMIN_PASSWORD: z.string().min(16),
+    SESSION_SECRET: z.string().min(32),
+    DATABASE_PATH: z.string().default('data/agent.sqlite'),
+    GEMINI_API_KEY: optional,
+    SARVAM_API_KEY: optional,
+    SARVAM_VOICE_AGENTS_API_KEY: optional,
+    VOICE_PROVIDER: settingsSchema.shape.voiceProvider,
+    SARVAM_MODEL: settingsSchema.shape.sarvamModel,
+    SARVAM_STT_MODEL: settingsSchema.shape.sarvamSttModel,
+    SARVAM_TTS_MODEL: settingsSchema.shape.sarvamTtsModel,
+    GEMINI_LIVE_MODEL: settingsSchema.shape.geminiModel,
+    TEST_PHONE_NUMBER: z
+      .string()
+      .regex(/^\+[1-9]\d{7,14}$/)
+      .default('+919625532959'),
+    STORE_NAME: z.string().trim().min(1).max(80).default('Demo Store'),
+    AGENT_LANGUAGE: z
+      .enum(['Hindi', 'English', 'Hindi and English'])
+      .default('Hindi and English'),
+    EXOTEL_ACCOUNT_SID: optional,
+    EXOTEL_API_KEY: optional,
+    EXOTEL_API_TOKEN: optional,
+    EXOTEL_CALLER_ID: optional,
+    EXOTEL_REGION: z.enum(['in', 'sg']).default('in'),
+    EXOTEL_FLOW_ID: z.string().regex(/^\d*$/).max(20).default(''),
+    PUBLIC_BASE_URL: optional,
+    ENABLE_PHONE_CALLS: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(10).default(10),
+    MAX_CALL_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
+    // Blank disables the business-system endpoint; it then answers 503.
+    INTEGRATION_INBOUND_SECRET: z
+      .union([z.literal(''), z.string().min(32)])
+      .default(''),
+    // Signed call results go only to this approved destination. Plain HTTP is
+    // accepted for loopback hosts so the local mock business system can receive them.
+    INTEGRATION_RESULT_URL: z
+      .union([
+        z.literal(''),
+        z.url().refine((value) => {
+          const url = new URL(value);
+          return (
+            !url.username &&
+            !url.password &&
+            (url.protocol === 'https:' ||
+              (url.protocol === 'http:' &&
+                ['localhost', '127.0.0.1'].includes(url.hostname)))
+          );
+        }),
+      ])
+      .default(''),
+    INTEGRATION_RESULT_SECRET: z
+      .union([z.literal(''), z.string().min(32)])
+      .default(''),
+    // Hours are IST: [start, end).
+    CALLING_HOURS_START: z.coerce.number().int().min(0).max(23).default(10),
+    CALLING_HOURS_END: z.coerce.number().int().min(1).max(24).default(19),
+    CALL_RETRY_DELAYS_MINUTES: z
+      .string()
+      .default('30,120')
+      .transform((value) => value.split(',').map(Number))
+      .pipe(
+        z.array(z.number().int().min(1).max(1440)).min(MAX_CALL_ATTEMPTS - 1),
+      ),
+  })
+  .refine((value) => value.CALLING_HOURS_END > value.CALLING_HOURS_START, {
+    path: ['CALLING_HOURS_END'],
+  });
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
   // Report field names only; validation details may contain supplied secrets.

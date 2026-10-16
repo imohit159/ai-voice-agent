@@ -6,11 +6,11 @@ import {
 } from '@orderline/contracts/integration';
 import { ApiError } from '../../platform/http/errors.js';
 import { verifySignature } from '../../platform/security/signatures.js';
-import type { createIntegrations } from './service.js';
+import type { CallManagement } from '../call-management/module.js';
 
 export async function registerIntegrationRoutes(
   app: FastifyInstance,
-  integrations: ReturnType<typeof createIntegrations>,
+  intake: Pick<CallManagement, 'acceptCallRequest'>,
   inboundSecret: string,
 ) {
   // Encapsulated so only these routes receive the raw body the signature covers.
@@ -45,7 +45,7 @@ export async function registerIntegrationRoutes(
         } catch {
           throw new ApiError(400, 'Request body must be valid JSON.');
         }
-        const { receipt, created } = integrations.acceptCallRequest(
+        const { receipt, created } = intake.acceptCallRequest(
           callRequestSchema.parse(json),
         );
         return reply.code(created ? 202 : 200).send(receipt);

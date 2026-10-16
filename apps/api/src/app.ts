@@ -27,13 +27,15 @@ import {
   type CallingOptions,
 } from './modules/calls/module.js';
 import { attachVoice, registerVoiceRoutes } from './modules/voice/index.js';
-import { registerIntegrationsModule } from './modules/integrations/module.js';
+import { startCallManagement } from './modules/call-management/module.js';
+import { startIntegrations } from './modules/integrations/module.js';
 import { webDist } from './config/paths.js';
 
 export async function createApp(
   options: CallingOptions & {
     store?: Store;
     voice?: typeof attachVoice;
+    telephony?: Parameters<typeof startCallManagement>[2]['telephony'];
     logging?: boolean;
   } = {},
 ) {
@@ -87,7 +89,29 @@ export async function createApp(
   registerWorkspaceRoutes(app, workspace);
   registerCallsModule(app, store, options);
   registerVoiceRoutes(app, store, session, options.voice ?? attachVoice);
-  await registerIntegrationsModule(app, store.db);
+  const integrations = startIntegrations(app, store.db);
+  const callManagement = startCallManagement(app, store.db, {
+    onAttemptFinished: integrations.recordAttemptResult,
+    aiConfig: () => {
+      const {
+        voiceProvider,
+        geminiModel,
+        sarvamModel,
+        sarvamSttModel,
+        sarvamTtsModel,
+      } = store.settings();
+      return voiceProvider === 'gemini'
+        ? { voiceProvider, model: geminiModel }
+        : {
+            voiceProvider,
+            model: sarvamModel,
+            sttModel: sarvamSttModel,
+            ttsModel: sarvamTtsModel,
+          };
+    },
+    telephony: options.telephony,
+  });
+  await integrations.registerRoutes(callManagement);
 
   if (existsSync(resolve(webDist, 'index.html'))) {
     await app.register(staticFiles, { root: webDist, index: 'index.html' });

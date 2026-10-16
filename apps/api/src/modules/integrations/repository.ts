@@ -1,101 +1,102 @@
 import type { DatabaseSync } from 'node:sqlite';
-import {
-  OPEN_CALL_REQUEST_STATUSES,
-  type CallRequest,
-  type CallRequestStatus,
-  type UseCase,
-} from '@orderline/contracts/integration';
+import type { CallResult } from '@orderline/contracts/integration';
 
-export interface StoredCallRequest {
-  id: string;
-  requestId: string;
-  source: 'integration' | 'practice';
-  useCase: UseCase;
-  orderRef: string;
-  status: CallRequestStatus;
-  maxAttempts: number;
-  notBefore: string;
-  notAfter: string;
-  payload: CallRequest;
-  payloadHash: string;
+export interface ResultDelivery {
+  eventId: string;
+  callRequestId: string;
+  attemptId: string | null;
+  payload: CallResult;
+  status: 'pending' | 'delivered' | 'failed';
+  deliveryAttempts: number;
+  nextAttemptAt: string;
+  lastError: string | null;
+  deliveredAt: string | null;
   createdAt: string;
-  updatedAt: string;
 }
 
 type Row = {
-  id: string;
-  request_id: string;
-  source: StoredCallRequest['source'];
-  use_case: UseCase;
-  order_ref: string;
-  status: CallRequestStatus;
-  max_attempts: number;
-  not_before: string;
-  not_after: string;
+  event_id: string;
+  call_request_id: string;
+  attempt_id: string | null;
   payload: string;
-  payload_hash: string;
+  status: ResultDelivery['status'];
+  delivery_attempts: number;
+  next_attempt_at: string;
+  last_error: string | null;
+  delivered_at: string | null;
   created_at: string;
-  updated_at: string;
 };
 
-const toRecord = (row: Row): StoredCallRequest => ({
-  id: row.id,
-  requestId: row.request_id,
-  source: row.source,
-  useCase: row.use_case,
-  orderRef: row.order_ref,
+const toDelivery = (row: Row): ResultDelivery => ({
+  eventId: row.event_id,
+  callRequestId: row.call_request_id,
+  attemptId: row.attempt_id,
+  payload: JSON.parse(row.payload) as CallResult,
   status: row.status,
-  maxAttempts: row.max_attempts,
-  notBefore: row.not_before,
-  notAfter: row.not_after,
-  payload: JSON.parse(row.payload) as CallRequest,
-  payloadHash: row.payload_hash,
+  deliveryAttempts: row.delivery_attempts,
+  nextAttemptAt: row.next_attempt_at,
+  lastError: row.last_error,
+  deliveredAt: row.delivered_at,
   createdAt: row.created_at,
-  updatedAt: row.updated_at,
 });
 
-export function createCallRequestRepository(db: DatabaseSync) {
-  const openStatuses = OPEN_CALL_REQUEST_STATUSES.map(() => '?').join(',');
+export function createResultDeliveryRepository(db: DatabaseSync) {
   return {
-    findByRequestId(requestId: string): StoredCallRequest | null {
-      const row = db
-        .prepare('SELECT * FROM call_requests WHERE request_id=?')
-        .get(requestId) as Row | undefined;
-      return row ? toRecord(row) : null;
-    },
-    hasOpenRequest(useCase: UseCase, orderRef: string): boolean {
-      return Boolean(
-        db
-          .prepare(
-            `SELECT 1 FROM call_requests WHERE use_case=? AND order_ref=? AND status IN (${openStatuses}) LIMIT 1`,
-          )
-          .get(useCase, orderRef, ...OPEN_CALL_REQUEST_STATUSES),
+    insert(
+      delivery: Pick<
+        ResultDelivery,
+        'eventId' | 'callRequestId' | 'attemptId' | 'payload' | 'createdAt'
+      >,
+    ): void {
+      db.prepare(
+        `INSERT INTO result_deliveries (event_id, call_request_id, attempt_id, payload, status,
+          next_attempt_at, created_at) VALUES (?,?,?,?,'pending',?,?)`,
+      ).run(
+        delivery.eventId,
+        delivery.callRequestId,
+        delivery.attemptId,
+        JSON.stringify(delivery.payload),
+        delivery.createdAt,
+        delivery.createdAt,
       );
     },
-    insert(record: StoredCallRequest): void {
+    due(at: string, limit: number): ResultDelivery[] {
+      return (
+        db
+          .prepare(
+            `SELECT * FROM result_deliveries WHERE status='pending' AND next_attempt_at <= ?
+              ORDER BY next_attempt_at LIMIT ?`,
+          )
+          .all(at, limit) as Row[]
+      ).map(toDelivery);
+    },
+    byEventId(eventId: string): ResultDelivery | null {
+      const row = db
+        .prepare('SELECT * FROM result_deliveries WHERE event_id=?')
+        .get(eventId) as Row | undefined;
+      return row ? toDelivery(row) : null;
+    },
+    recordAttempt(
+      eventId: string,
+      change: Pick<
+        ResultDelivery,
+        'status' | 'nextAttemptAt' | 'lastError' | 'deliveredAt'
+      >,
+    ): void {
       db.prepare(
-        `INSERT INTO call_requests (id, request_id, source, use_case, order_ref, status, max_attempts,
-          not_before, not_after, payload, payload_hash, created_at, updated_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `UPDATE result_deliveries SET status=?, next_attempt_at=?, last_error=?, delivered_at=?,
+          delivery_attempts = delivery_attempts + 1 WHERE event_id=?`,
       ).run(
-        record.id,
-        record.requestId,
-        record.source,
-        record.useCase,
-        record.orderRef,
-        record.status,
-        record.maxAttempts,
-        record.notBefore,
-        record.notAfter,
-        JSON.stringify(record.payload),
-        record.payloadHash,
-        record.createdAt,
-        record.updatedAt,
+        change.status,
+        change.nextAttemptAt,
+        change.lastError,
+        change.deliveredAt,
+        eventId,
       );
     },
   };
 }
 
-export type CallRequestRepository = ReturnType<
-  typeof createCallRequestRepository
+export type ResultDeliveryRepository = ReturnType<
+  typeof createResultDeliveryRepository
 >;

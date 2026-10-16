@@ -61,14 +61,14 @@ Unknown fields are rejected.
 | `400`    | Invalid JSON or fields. `fields` lists the failing paths, e.g. `["customer.phone"]`.                                                |
 | `401`    | Missing, invalid or expired signature.                                                                                              |
 | `409`    | `requestId` reused with different content, or an open request already exists for this order.                                        |
-| `422`    | Schedule window is invalid, already over, or more than 7 days ahead.                                                                |
+| `422`    | Schedule window is invalid, already over, more than 7 days ahead, or contains no calling hours.                                     |
 | `503`    | Integration not configured on our side. Retry later.                                                                                |
 
 Retry on network errors and `5xx` with the same body and `requestId`. Do not retry `4xx` without fixing the request.
 
 ## Call result
 
-We send `POST` to your configured result URL after **every attempt**, signed with the result secret. Respond with any `2xx` to acknowledge receipt. We retry failed deliveries with backoff, so deduplicate by `eventId`.
+We send `POST` to your configured result URL after **every attempt**, signed with the result secret. Respond with any `2xx` to acknowledge receipt. We retry failed deliveries with backoff (about 1 min, 5 min, 15 min, 1 h, 3 h and 6 h), so deduplicate by `eventId`. Redirects are not followed.
 
 ```json
 {
@@ -100,6 +100,7 @@ We send `POST` to your configured result URL after **every attempt**, signed wit
 | ---------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `requestStatus`  | `pending` (another attempt will follow), `completed`, `exhausted` (no attempt answered), `expired` (window ended). |
 | `attempt.result` | `answered`, `no_answer`, `busy`, `failed`.                                                                         |
+| `attempt`        | `null` only when the window closed before another attempt could be made (`requestStatus: expired`).                |
 | `outcome`        | `null` unless the call was answered and reached a decision.                                                        |
 | `outcome.code`   | `confirmed`, `cancel_requested`, `change_requested`, `callback_requested`, `wrong_person`, `needs_follow_up`.      |
 

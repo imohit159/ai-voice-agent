@@ -23,6 +23,22 @@ export const OPEN_CALL_REQUEST_STATUSES = [
   'pending',
   'in_progress',
 ] as const satisfies readonly CallRequestStatus[];
+export const LIVE_ATTEMPT_STATUSES = [
+  'dialing',
+  'ringing',
+  'in_progress',
+  'unknown',
+] as const;
+export const FINAL_ATTEMPT_STATUSES = [
+  'completed',
+  'no_answer',
+  'busy',
+  'failed',
+] as const;
+export const ATTEMPT_STATUSES = [
+  ...LIVE_ATTEMPT_STATUSES,
+  ...FINAL_ATTEMPT_STATUSES,
+] as const;
 export const ATTEMPT_RESULTS = [
   'answered',
   'no_answer',
@@ -40,6 +56,8 @@ export type UseCase = (typeof USE_CASES)[number];
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 export type CallRequestStatus = (typeof CALL_REQUEST_STATUSES)[number];
 export type AttemptResult = (typeof ATTEMPT_RESULTS)[number];
+export type AttemptStatus = (typeof ATTEMPT_STATUSES)[number];
+export type FinalAttemptStatus = (typeof FINAL_ATTEMPT_STATUSES)[number];
 
 const identifier = z
   .string()
@@ -138,7 +156,9 @@ export const callResultSchema = z
         durationSeconds: z.number().int().min(0),
         failureReason: z.string().max(300).nullable(),
       })
-      .strict(),
+      .strict()
+      // null when the window closed before another attempt could be made.
+      .nullable(),
     outcome: z
       .object({
         code: z.enum(CALL_OUTCOMES),
