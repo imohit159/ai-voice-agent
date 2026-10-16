@@ -17,25 +17,21 @@ type Dependencies = {
     WorkspaceState['connections'],
     | 'geminiConfigured'
     | 'sarvamConfigured'
-    | 'callerId'
-    | 'testPhone'
+    | 'telephony'
     | 'maxCallSeconds'
     | 'maxConcurrentCalls'
   >;
   voiceReadiness: (provider: Settings['voiceProvider']) => string[];
-  phoneReadiness: (provider: Settings['voiceProvider']) => string[];
 };
 
 export function createWorkspace({
   store,
   connections,
   voiceReadiness,
-  phoneReadiness,
 }: Dependencies) {
   return {
     state(): WorkspaceState {
       const settings = store.settings();
-      const missing = phoneReadiness(settings.voiceProvider);
       return {
         settings,
         orders: store.orders(),
@@ -45,8 +41,6 @@ export function createWorkspace({
           geminiModel: settings.geminiModel,
           selectedConfigured:
             voiceReadiness(settings.voiceProvider).length === 0,
-          exotelReady: missing.length === 0,
-          missing,
         },
       };
     },

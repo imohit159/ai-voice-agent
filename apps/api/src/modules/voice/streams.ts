@@ -160,37 +160,9 @@ export function attachVoice(socket: WebSocket, call: Call, store: Store) {
           agent.audio(decodeAudio(message.data).toString('base64'));
         else if (ready && message.event === 'text') agent.text(message.text);
       } else {
-        const message = exotelMessage.parse(json);
-        if (message.event === 'start') {
-          if (started || !message.start)
-            throw new Error('Duplicate or invalid start.');
-          const start = message.start;
-          const current = store.call(call.id)!;
-          if (
-            start.account_sid !== config.EXOTEL_ACCOUNT_SID ||
-            (current.providerSid && current.providerSid !== start.call_sid)
-          )
-            throw new Error('Call identity mismatch.');
-          const rate = exotelSampleRate(start.media_format);
-          streamSid = start.stream_sid;
-          store.update(call.id, { providerSid: start.call_sid });
-          inputConverter = new PcmResampler(rate, 16000);
-          outputConverter = new PcmResampler(24000, rate);
-          void begin().catch(() => finish('Voice startup failed.', false));
-        } else if (message.event === 'media') {
-          if (!started || message.stream_sid !== streamSid || !message.media)
-            throw new Error('Invalid stream.');
-          // Discard pre-ready audio instead of buffering an unbounded stream during connection setup.
-          if (ready)
-            agent.audio(
-              inputConverter
-                .push(decodeAudio(message.media.payload))
-                .toString('base64'),
-            );
-        } else if (message.event === 'stop') {
-          finish(undefined, message.stop?.reason === 'callended');
-        } else if (message.event === 'mark' && message.mark?.name === 'goodbye')
-          finish();
+        // Phone audio now streams from Plivo to the Pipecat voice agent; this
+        // legacy module only serves browser practice until it is retired.
+        throw new Error('Phone streams are not served here.');
       }
     } catch {
       finish('Invalid voice-stream message.', false);

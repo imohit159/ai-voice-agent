@@ -32,17 +32,18 @@ const schema = z
     AGENT_LANGUAGE: z
       .enum(['Hindi', 'English', 'Hindi and English'])
       .default('Hindi and English'),
-    EXOTEL_ACCOUNT_SID: optional,
-    EXOTEL_API_KEY: optional,
-    EXOTEL_API_TOKEN: optional,
-    EXOTEL_CALLER_ID: optional,
-    EXOTEL_REGION: z.enum(['in', 'sg']).default('in'),
-    EXOTEL_FLOW_ID: z.string().regex(/^\d*$/).max(20).default(''),
+    TELEPHONY_PROVIDER: z.enum(['plivo', 'simulated']).default('plivo'),
+    PLIVO_AUTH_ID: optional,
+    PLIVO_AUTH_TOKEN: optional,
+    PLIVO_FROM_NUMBER: z
+      .union([z.literal(''), z.string().regex(/^\+91\d{10}$/)])
+      .default(''),
+    // Public HTTPS origin Plivo calls back to, e.g. https://agent.example.com
     PUBLIC_BASE_URL: optional,
-    ENABLE_PHONE_CALLS: z
-      .enum(['true', 'false'])
-      .default('false')
-      .transform((v) => v === 'true'),
+    // Public WSS endpoint of the Pipecat voice agent that Plivo streams call audio to.
+    VOICE_AGENT_STREAM_URL: z
+      .union([z.literal(''), z.url({ protocol: /^wss$/ })])
+      .default(''),
     MAX_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(10).default(10),
     MAX_CALL_SECONDS: z.coerce.number().int().min(30).max(600).default(180),
     // Blank disables the business-system endpoint; it then answers 503.
@@ -82,6 +83,19 @@ const schema = z
   })
   .refine((value) => value.CALLING_HOURS_END > value.CALLING_HOURS_START, {
     path: ['CALLING_HOURS_END'],
+  })
+  .superRefine((value, context) => {
+    // Plivo is the default so a server never silently simulates calls.
+    if (value.TELEPHONY_PROVIDER !== 'plivo') return;
+    for (const key of [
+      'PLIVO_AUTH_ID',
+      'PLIVO_AUTH_TOKEN',
+      'PLIVO_FROM_NUMBER',
+      'PUBLIC_BASE_URL',
+      'VOICE_AGENT_STREAM_URL',
+    ] as const)
+      if (!value[key])
+        context.addIssue({ code: 'custom', path: [key], message: 'Required' });
   });
 const parsed = schema.safeParse(process.env);
 if (!parsed.success) {
@@ -124,20 +138,4 @@ export const defaultSettings = settingsSchema.parse({
 export function voiceReadiness(provider: Settings['voiceProvider']): string[] {
   const key = provider === 'sarvam' ? 'SARVAM_API_KEY' : 'GEMINI_API_KEY';
   return config[key] ? [] : [key];
-}
-export function phoneReadiness(
-  provider: Settings['voiceProvider'] = config.VOICE_PROVIDER,
-): string[] {
-  const missing: string[] = voiceReadiness(provider);
-  for (const name of [
-    'EXOTEL_ACCOUNT_SID',
-    'EXOTEL_API_KEY',
-    'EXOTEL_API_TOKEN',
-    'EXOTEL_CALLER_ID',
-    'PUBLIC_BASE_URL',
-  ] as const) {
-    if (!config[name]) missing.push(name);
-  }
-  if (!config.ENABLE_PHONE_CALLS) missing.push('ENABLE_PHONE_CALLS');
-  return missing;
 }

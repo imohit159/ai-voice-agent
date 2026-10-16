@@ -59,10 +59,10 @@ export function fakeTelephony() {
       states.set(providerCallId, behaviour.status);
       return { providerCallId, status: behaviour.status };
     },
-    async lookup(providerCallId) {
+    async lookup({ providerCallId }) {
       const status = states.get(providerCallId);
       if (!status) throw new TelephonyError('Unknown call.', false);
-      return status;
+      return { status };
     },
   };
   return { telephony, dialled, queued, states };

@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 import type { Order, Settings } from '@orderline/contracts';
 import { config } from '../src/config/index.js';
 
-// This check uses sample text in a browser-practice session. It never dials Exotel.
+// This check uses sample text in a browser-practice session. It never places a phone call.
 const base = `http://127.0.0.1:${config.PORT}`;
 const origin = new URL(config.APP_ORIGIN).origin;
 type PracticeState = { settings: Settings; orders: Order[] };

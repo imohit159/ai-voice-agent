@@ -22,7 +22,7 @@ import type {
 } from './repository.js';
 import {
   TelephonyError,
-  type ProviderCallStatus,
+  type ProviderEvent,
   type Telephony,
 } from './telephony.js';
 
@@ -171,14 +171,14 @@ export function createCallManagement({
   function finishAttempt(
     attempt: StoredAttempt,
     status: FinalAttemptStatus,
-    providerCallId: string | null,
+    identity: Pick<StoredAttempt, 'providerCallId' | 'providerLegId'>,
     failureReason: string | null,
   ): StoredAttempt {
     const at = now();
     const finished = repository.transaction(() => {
       const ended = repository.updateAttempt(attempt.id, {
         status,
-        providerCallId: providerCallId ?? attempt.providerCallId,
+        ...identity,
         failureReason,
         answeredAt: attempt.answeredAt,
         endedAt: at.toISOString(),
@@ -215,26 +215,43 @@ export function createCallManagement({
   }
 
   /** Applies a provider status report. Idempotent; never moves an attempt backwards. */
-  function applyProviderEvent(
-    attemptId: string,
-    providerCallId: string,
-    status: ProviderCallStatus,
-  ): StoredAttempt {
-    const attempt = repository.attemptById(attemptId);
+  function applyProviderEvent(event: ProviderEvent): StoredAttempt {
+    const attempt = repository.attemptById(event.attemptId);
     if (!attempt) throw new CallManagementError(404, 'Call attempt not found.');
-    if (attempt.providerCallId && attempt.providerCallId !== providerCallId)
+    const legId = event.providerLegId ?? null;
+    if (
+      (attempt.providerCallId &&
+        event.providerCallId &&
+        attempt.providerCallId !== event.providerCallId) ||
+      (attempt.providerLegId && legId && attempt.providerLegId !== legId)
+    )
       throw new CallManagementError(403, 'Call identity mismatch.');
     if (isFinal(attempt.status)) return attempt;
-    if (isFinal(status))
-      return finishAttempt(attempt, status, providerCallId, null);
+    const identity = {
+      providerCallId: attempt.providerCallId ?? event.providerCallId ?? null,
+      providerLegId: attempt.providerLegId ?? legId,
+    };
+    if (isFinal(event.status)) {
+      // Once the customer answered, the business result is "answered" however the line dropped.
+      const status = attempt.answeredAt ? 'completed' : event.status;
+      return finishAttempt(
+        attempt,
+        status,
+        identity,
+        status === 'completed' ? null : (event.detail ?? null),
+      );
+    }
+    const status = event.status;
     if (
       STATUS_RANK[status] < STATUS_RANK[attempt.status] ||
-      (status === attempt.status && attempt.providerCallId)
+      (status === attempt.status &&
+        attempt.providerCallId &&
+        identity.providerLegId === attempt.providerLegId)
     )
       return attempt;
     return repository.updateAttempt(attempt.id, {
       status,
-      providerCallId,
+      ...identity,
       failureReason: null,
       answeredAt:
         status === 'in_progress'
@@ -254,6 +271,7 @@ export function createCallManagement({
         status: 'dialing',
         provider: telephony.name,
         providerCallId: null,
+        providerLegId: null,
         aiConfig: aiConfig(),
         outcome: null,
         outcomeSummary: null,
@@ -284,7 +302,7 @@ export function createCallManagement({
         attemptId: attempt.id,
         phone: request.payload.customer.phone,
       });
-      applyProviderEvent(attempt.id, dialled.providerCallId, dialled.status);
+      applyProviderEvent({ attemptId: attempt.id, ...dialled });
     } catch (error) {
       const failure =
         error instanceof TelephonyError
@@ -304,7 +322,15 @@ export function createCallManagement({
           'Dial outcome uncertain; attempt needs reconciliation',
         );
       } else {
-        finishAttempt(current, 'failed', null, failure.message);
+        finishAttempt(
+          current,
+          'failed',
+          {
+            providerCallId: current.providerCallId,
+            providerLegId: current.providerLegId,
+          },
+          failure.message,
+        );
       }
     }
   }
@@ -357,8 +383,15 @@ export function createCallManagement({
     ).toISOString();
     for (const attempt of repository.attemptsToReconcile(staleBefore)) {
       try {
-        const status = await telephony.lookup(attempt.providerCallId!);
-        applyProviderEvent(attempt.id, attempt.providerCallId!, status);
+        const state = await telephony.lookup({
+          providerCallId: attempt.providerCallId!,
+          providerLegId: attempt.providerLegId,
+        });
+        applyProviderEvent({
+          attemptId: attempt.id,
+          providerCallId: attempt.providerCallId!,
+          ...state,
+        });
       } catch {
         log.warn(
           { attemptId: attempt.id },

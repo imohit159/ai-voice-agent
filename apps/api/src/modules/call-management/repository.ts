@@ -33,6 +33,7 @@ export interface StoredAttempt {
   status: AttemptStatus;
   provider: string;
   providerCallId: string | null;
+  providerLegId: string | null;
   aiConfig: Record<string, unknown>;
   outcome: CallOutcome | null;
   outcomeSummary: string | null;
@@ -67,6 +68,7 @@ type AttemptRow = {
   status: AttemptStatus;
   provider: string;
   provider_call_id: string | null;
+  provider_leg_id: string | null;
   ai_config: string;
   outcome: CallOutcome | null;
   outcome_summary: string | null;
@@ -101,6 +103,7 @@ const toAttempt = (row: AttemptRow): StoredAttempt => ({
   status: row.status,
   provider: row.provider,
   providerCallId: row.provider_call_id,
+  providerLegId: row.provider_leg_id,
   aiConfig: JSON.parse(row.ai_config) as Record<string, unknown>,
   outcome: row.outcome,
   outcomeSummary: row.outcome_summary,
@@ -237,15 +240,21 @@ export function createCallManagementRepository(db: DatabaseSync) {
       id: string,
       change: Pick<
         StoredAttempt,
-        'status' | 'providerCallId' | 'failureReason' | 'answeredAt' | 'endedAt'
+        | 'status'
+        | 'providerCallId'
+        | 'providerLegId'
+        | 'failureReason'
+        | 'answeredAt'
+        | 'endedAt'
       >,
     ): StoredAttempt {
       db.prepare(
-        `UPDATE call_attempts SET status=?, provider_call_id=?, failure_reason=?,
-          answered_at=?, ended_at=? WHERE id=?`,
+        `UPDATE call_attempts SET status=?, provider_call_id=?, provider_leg_id=?,
+          failure_reason=?, answered_at=?, ended_at=? WHERE id=?`,
       ).run(
         change.status,
         change.providerCallId,
+        change.providerLegId,
         change.failureReason,
         change.answeredAt,
         change.endedAt,

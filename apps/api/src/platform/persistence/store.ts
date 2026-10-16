@@ -58,8 +58,7 @@ export class Store {
               }
             : {
                 status: 'unknown',
-                error:
-                  'Server restarted. Reconcile with Exotel before retrying.',
+                error: 'Server restarted during a legacy phone attempt.',
               },
         );
       }
@@ -106,25 +105,6 @@ export class Store {
   byKey(key: string): Call | null {
     return this.decode(
       this.db.prepare('SELECT data FROM calls WHERE request_key=?').get(key),
-    );
-  }
-  byProviderSid(sid: string): Call | null {
-    return this.decode(
-      this.db
-        .prepare(
-          "SELECT data FROM calls WHERE json_extract(data, '$.providerSid')=? LIMIT 1",
-        )
-        .get(sid),
-    );
-  }
-  hasActivePhoneCall(orderId: string): boolean {
-    const statuses = ACTIVE_STATUSES.map(() => '?').join(',');
-    return Boolean(
-      this.db
-        .prepare(
-          `SELECT 1 FROM calls WHERE order_id=? AND mode='phone' AND status IN (${statuses}) LIMIT 1`,
-        )
-        .get(orderId, ...ACTIVE_STATUSES),
     );
   }
   activeCount(): number {

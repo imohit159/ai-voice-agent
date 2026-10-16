@@ -177,7 +177,11 @@ test('result delivery retries with backoff, then stops for manual recovery', asy
   h.calls.acceptCallRequest(callRequest({ metadata: { campaign: 'cod' } }));
   await h.calls.runSchedule();
   const call = h.provider.dialled[0]!;
-  h.calls.applyProviderEvent(call.attemptId, call.providerCallId, 'completed');
+  h.calls.applyProviderEvent({
+    attemptId: call.attemptId,
+    providerCallId: call.providerCallId,
+    status: 'completed',
+  });
 
   await h.results.deliverDue();
   assert.equal(h.outbox()[0]!.status, 'pending');
@@ -205,11 +209,11 @@ test('results are delivered and wait in the outbox while no destination is set',
   unconfigured.calls.acceptCallRequest(callRequest());
   await unconfigured.calls.runSchedule();
   const call = unconfigured.provider.dialled[0]!;
-  unconfigured.calls.applyProviderEvent(
-    call.attemptId,
-    call.providerCallId,
-    'busy',
-  );
+  unconfigured.calls.applyProviderEvent({
+    attemptId: call.attemptId,
+    providerCallId: call.providerCallId,
+    status: 'busy',
+  });
   await unconfigured.results.deliverDue();
   assert.equal(unconfigured.outbox()[0]!.status, 'pending');
 
@@ -217,11 +221,11 @@ test('results are delivered and wait in the outbox while no destination is set',
   configured.calls.acceptCallRequest(callRequest());
   await configured.calls.runSchedule();
   const answered = configured.provider.dialled[0]!;
-  configured.calls.applyProviderEvent(
-    answered.attemptId,
-    answered.providerCallId,
-    'completed',
-  );
+  configured.calls.applyProviderEvent({
+    attemptId: answered.attemptId,
+    providerCallId: answered.providerCallId,
+    status: 'completed',
+  });
   await configured.results.deliverDue();
   const [delivered] = configured.outbox();
   assert.equal(delivered!.status, 'delivered');

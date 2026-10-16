@@ -1,7 +1,4 @@
-import type {
-  WorkspaceState,
-  StartCallRequest,
-} from '@orderline/contracts/api';
+import type { WorkspaceState } from '@orderline/contracts/api';
 import { createApiClient } from './api/client.js';
 import { renderLogin } from './features/auth/login.js';
 import { ordersPage, type OrderFilter } from './features/orders/view.js';
@@ -18,7 +15,6 @@ export function startWorkspace(app: HTMLElement) {
   let filter: OrderFilter = 'all';
   let selectedCallId: string | null = null;
   let busy = false;
-  let latestRequest: StartCallRequest | null = null;
   let polling = false;
   const api = createApiClient(() => {
     authenticated = false;
@@ -116,8 +112,6 @@ export function startWorkspace(app: HTMLElement) {
         if (practice.snapshot().running) practice.stop();
         else void practice.start(state.orders[0]!.id);
       };
-    const phone = document.querySelector<HTMLButtonElement>('#phone-call');
-    if (phone) phone.onclick = () => void startPhone();
     document.querySelectorAll<HTMLButtonElement>('[data-call]').forEach(
       (button) =>
         (button.onclick = () => {
@@ -163,30 +157,6 @@ export function startWorkspace(app: HTMLElement) {
       toast(error instanceof Error ? error.message : 'Something went wrong.');
     }
   }
-  async function startPhone() {
-    if (busy) return;
-    busy = true;
-    render();
-    latestRequest ??= {
-      orderId: state.orders[0]!.id,
-      mode: 'phone',
-      requestKey: crypto.randomUUID(),
-    };
-    try {
-      const { call } = await api.startCall(latestRequest);
-      latestRequest = null;
-      selectedCallId = call.id;
-      page = 'calls';
-      await refresh();
-      toast(call.error || 'Exotel accepted the test-call request.');
-    } catch (error) {
-      toast(error instanceof Error ? error.message : 'Call request failed.');
-    } finally {
-      busy = false;
-      render();
-      if (page === 'calls' && selectedCallId) void loadCall(selectedCallId);
-    }
-  }
   async function loadCall(id: string) {
     await action(async () => {
       const result = await api.call(id);
@@ -194,20 +164,6 @@ export function startWorkspace(app: HTMLElement) {
       if (!panel) return;
       panel.hidden = false;
       panel.innerHTML = callDetail(result);
-      const button = document.querySelector<HTMLButtonElement>('#reconcile');
-      if (button)
-        button.onclick = () =>
-          void action(async () => {
-            button.disabled = true;
-            try {
-              await api.reconcileCall(id);
-              await refresh();
-              render();
-              await loadCall(id);
-            } finally {
-              button.disabled = false;
-            }
-          });
     });
   }
   window.addEventListener('beforeunload', () => practice.stop());

@@ -49,7 +49,7 @@ Each table is added in the stage that first uses it.
 
 1. **Contracts and intake.** ✅ Call request/result contracts ([integration contract](integration-contract.md)), HMAC signing, versioned SQLite migrations, `call_requests` table, signed intake endpoint, mock business system (sender).
 2. **Call management.** ✅ `call_attempts` and `result_deliveries` tables; `call-management` module (scheduler with calling hours, retry backoff, concurrency limit, restart recovery, reconciliation) behind a telephony port with a simulated provider; transactional result outbox with signed, retried delivery; mock business system result receiver.
-3. **Plivo.** Outbound dial, answer XML with signed stream URL, status callbacks with signature verification, reconciliation. Remove Exotel.
+3. **Plivo.** ✅ Plivo telephony adapter (dial, V3-signed ring/answer/hangup callbacks, hangup-cause mapping, call-record reconciliation), `<Stream>` answer XML with a short-lived voice-session token, Plivo as the default provider with startup validation. Exotel removed; the legacy voice module now serves browser practice only.
 4. **Pipecat service.** Python service with Plivo serializer and WebRTC transport, both model stages, internal API client, `transcript_entries` table. Remove the Node `voice` module.
 5. **Order confirmation.** Conversation plan, identity check, outcome tool, backend action validation.
 6. **Dashboard.** `users` and `audit_events` tables; React app with roles, call history, transcripts, delivery status, practice calls.

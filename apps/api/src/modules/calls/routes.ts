@@ -15,7 +15,7 @@ import { ApiError } from '../../platform/http/errors.js';
 const callRequest = z
   .object({
     orderId: z.string().min(1).max(80),
-    mode: z.enum(['browser', 'phone']),
+    mode: z.literal('browser'),
     requestKey: z.uuid(),
   })
   .strict() satisfies z.ZodType<StartCallRequest>;
@@ -41,10 +41,6 @@ export function registerCallRoutes(
   });
   app.post('/api/calls', async (request) => {
     const body = callRequest.parse(request.body);
-    return browserResponse(await calls.start(body));
-  });
-  app.post('/api/calls/:id/reconcile', async (request) => {
-    const { id } = idParams.parse(request.params);
-    return { call: await calls.reconcile(id) };
+    return browserResponse(calls.start(body));
   });
 }

@@ -106,12 +106,28 @@ test('an answered call completes the request and queues one answered result', as
   );
 
   h.advance(0.5);
-  h.calls.applyProviderEvent(attemptId, providerCallId, 'in_progress');
+  h.calls.applyProviderEvent({
+    attemptId: attemptId,
+    providerCallId: providerCallId,
+    status: 'in_progress',
+  });
   h.advance(2);
-  h.calls.applyProviderEvent(attemptId, providerCallId, 'completed');
+  h.calls.applyProviderEvent({
+    attemptId: attemptId,
+    providerCallId: providerCallId,
+    status: 'completed',
+  });
   // Duplicate and out-of-order reports change nothing.
-  h.calls.applyProviderEvent(attemptId, providerCallId, 'completed');
-  h.calls.applyProviderEvent(attemptId, providerCallId, 'ringing');
+  h.calls.applyProviderEvent({
+    attemptId: attemptId,
+    providerCallId: providerCallId,
+    status: 'completed',
+  });
+  h.calls.applyProviderEvent({
+    attemptId: attemptId,
+    providerCallId: providerCallId,
+    status: 'ringing',
+  });
 
   assert.equal(
     h.repository.requestByRequestId('req-1001')!.status,
@@ -135,11 +151,11 @@ test('unanswered calls retry with backoff, then exhaust with a result per attemp
     h.advance(1);
     await h.calls.runSchedule();
     const call = h.provider.dialled[index]!;
-    h.calls.applyProviderEvent(
-      call.attemptId,
-      call.providerCallId,
-      'no_answer',
-    );
+    h.calls.applyProviderEvent({
+      attemptId: call.attemptId,
+      providerCallId: call.providerCallId,
+      status: 'no_answer',
+    });
   }
   await h.calls.runSchedule();
   assert.equal(h.provider.dialled.length, 3);
@@ -171,11 +187,11 @@ test('the scheduler respects capacity and calling hours', async () => {
   await h.calls.runSchedule();
   assert.equal(h.provider.dialled.length, 2, 'no slot until a call ends');
   const first = h.provider.dialled[0]!;
-  h.calls.applyProviderEvent(
-    first.attemptId,
-    first.providerCallId,
-    'completed',
-  );
+  h.calls.applyProviderEvent({
+    attemptId: first.attemptId,
+    providerCallId: first.providerCallId,
+    status: 'completed',
+  });
   await h.calls.runSchedule();
   assert.equal(h.provider.dialled.length, 3);
 
@@ -226,11 +242,21 @@ test('provider events for another call are rejected', async () => {
   await h.calls.runSchedule();
   const { attemptId } = h.provider.dialled[0]!;
   assert.throws(
-    () => h.calls.applyProviderEvent(attemptId, 'someone-else', 'completed'),
+    () =>
+      h.calls.applyProviderEvent({
+        attemptId: attemptId,
+        providerCallId: 'someone-else',
+        status: 'completed',
+      }),
     { statusCode: 403 },
   );
   assert.throws(
-    () => h.calls.applyProviderEvent(crypto.randomUUID(), 'x', 'completed'),
+    () =>
+      h.calls.applyProviderEvent({
+        attemptId: crypto.randomUUID(),
+        providerCallId: 'x',
+        status: 'completed',
+      }),
     { statusCode: 404 },
   );
 });

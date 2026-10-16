@@ -1,1 +1,1 @@
-export { createCalls, CallError, ProviderError } from './service.js';
+export { createCalls, CallError } from './service.js';

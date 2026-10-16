@@ -17,11 +17,11 @@ const labels: Record<string, string> = {
   failed: 'Failed',
   busy: 'Busy',
   no_answer: 'No answer',
-  unknown: 'Check Exotel',
+  unknown: 'Needs check',
   configured: 'Configured',
   ready: 'Ready',
   missing: 'Setup needed',
-  calling_disabled: 'Calling disabled',
+  simulated: 'Simulated',
 };
 export const badge = (value: string | null) =>
   `<span class="badge ${esc(value || 'pending')}"><span class="dot"></span>${esc(value ? (labels[value] ?? value) : 'Awaiting confirmation')}</span>`;

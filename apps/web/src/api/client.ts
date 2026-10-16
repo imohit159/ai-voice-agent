@@ -39,12 +39,6 @@ export function createApiClient(onUnauthorized: () => void) {
       request<StartCallResponse>('/api/calls', 'POST', input),
     call: (id: string) =>
       request<CallDetail>(`/api/calls/${encodeURIComponent(id)}`),
-    reconcileCall: (id: string) =>
-      request<StartCallResponse>(
-        `/api/calls/${encodeURIComponent(id)}/reconcile`,
-        'POST',
-        {},
-      ),
   };
 }
 

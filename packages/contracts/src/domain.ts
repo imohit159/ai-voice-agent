@@ -85,17 +85,3 @@ export const settingsSchema = z
     sarvamTtsModel: z.enum(SARVAM_TTS_MODELS).default(SARVAM_TTS_MODELS[0]),
   })
   .strict();
-export function providerStatus(status: string): CallStatus | null {
-  const states: Record<string, CallStatus> = {
-    queued: 'queued',
-    ringing: 'connecting',
-    answered: 'active',
-    'in-progress': 'active',
-    completed: 'completed',
-    failed: 'failed',
-    busy: 'busy',
-    'no-answer': 'no_answer',
-    canceled: 'failed',
-  };
-  return states[status] ?? null;
-}

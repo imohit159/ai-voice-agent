@@ -6,12 +6,7 @@ import websocket from '@fastify/websocket';
 import staticFiles from '@fastify/static';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import {
-  config,
-  defaultSettings,
-  voiceReadiness,
-  phoneReadiness,
-} from './config/index.js';
+import { config, defaultSettings, voiceReadiness } from './config/index.js';
 import { Store } from './platform/persistence/store.js';
 import { registerHttpSecurity } from './platform/http/security.js';
 import {
@@ -22,17 +17,14 @@ import {
   createWorkspace,
   registerWorkspaceRoutes,
 } from './modules/workspace/index.js';
-import {
-  registerCallsModule,
-  type CallingOptions,
-} from './modules/calls/module.js';
+import { registerCallsModule } from './modules/calls/module.js';
 import { attachVoice, registerVoiceRoutes } from './modules/voice/index.js';
 import { startCallManagement } from './modules/call-management/module.js';
 import { startIntegrations } from './modules/integrations/module.js';
 import { webDist } from './config/paths.js';
 
 export async function createApp(
-  options: CallingOptions & {
+  options: {
     store?: Store;
     voice?: typeof attachVoice;
     telephony?: Parameters<typeof startCallManagement>[2]['telephony'];
@@ -73,12 +65,13 @@ export async function createApp(
   const workspace = createWorkspace({
     store,
     voiceReadiness,
-    phoneReadiness,
     connections: {
       geminiConfigured: Boolean(config.GEMINI_API_KEY),
       sarvamConfigured: Boolean(config.SARVAM_API_KEY),
-      callerId: config.EXOTEL_CALLER_ID || null,
-      testPhone: config.TEST_PHONE_NUMBER,
+      telephony: {
+        provider: options.telephony ? 'test' : config.TELEPHONY_PROVIDER,
+        callerId: config.PLIVO_FROM_NUMBER || null,
+      },
       maxCallSeconds: config.MAX_CALL_SECONDS,
       maxConcurrentCalls: config.MAX_CONCURRENT_CALLS,
     },
@@ -87,7 +80,7 @@ export async function createApp(
   // Register on the same scope so every route shares authentication and error handling.
   registerAuthRoutes(app, session);
   registerWorkspaceRoutes(app, workspace);
-  registerCallsModule(app, store, options);
+  registerCallsModule(app, store);
   registerVoiceRoutes(app, store, session, options.voice ?? attachVoice);
   const integrations = startIntegrations(app, store.db);
   const callManagement = startCallManagement(app, store.db, {

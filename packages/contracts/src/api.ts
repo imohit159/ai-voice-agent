@@ -9,10 +9,8 @@ export interface WorkspaceState {
     sarvamConfigured: boolean;
     selectedConfigured: boolean;
     geminiModel: string;
-    exotelReady: boolean;
-    missing: string[];
-    callerId: string | null;
-    testPhone: string;
+    /** Provider credentials are validated at server start, so a running server is ready. */
+    telephony: { provider: string; callerId: string | null };
     maxCallSeconds: number;
     maxConcurrentCalls: number;
   };

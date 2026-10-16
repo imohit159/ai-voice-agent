@@ -76,4 +76,9 @@ export const migrations: readonly string[] = [
     created_at TEXT NOT NULL
   );
   CREATE INDEX result_deliveries_due ON result_deliveries(status, next_attempt_at);`,
+
+  // 4: providers such as Plivo identify the connected call leg separately from the dial request.
+  `ALTER TABLE call_attempts ADD COLUMN provider_leg_id TEXT;
+  CREATE UNIQUE INDEX call_attempts_provider_leg ON call_attempts(provider_leg_id)
+    WHERE provider_leg_id IS NOT NULL;`,
 ];

@@ -8,7 +8,6 @@ import {
   decodeAudio,
   exotelSampleRate,
 } from '../src/modules/voice/audio.js';
-import { providerStatus } from '@orderline/contracts';
 
 const secret = 'test-secret-that-is-at-least-32-characters';
 test('Exotel documented PCM metadata accepts kbps and rejects compressed or mismatched audio', () => {
@@ -111,9 +110,4 @@ test('PCM conversion is continuous across split chunks and emits bounded Exotel 
   assert.deepEqual(Buffer.concat(frames).subarray(0, full.length), full);
   assert.throws(() => decodeAudio('not-valid!'));
   assert.throws(() => decodeAudio(Buffer.from([1]).toString('base64')));
-});
-test('provider status maps no-answer and rejects unrecognized statuses', () => {
-  assert.equal(providerStatus('no-answer'), 'no_answer');
-  assert.equal(providerStatus('completed'), 'completed');
-  assert.equal(providerStatus('made-up-state'), null);
 });

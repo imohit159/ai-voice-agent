@@ -2,14 +2,11 @@ import { randomUUID } from 'node:crypto';
 import {
   TelephonyError,
   type ProviderCallStatus,
+  type ProviderEvent,
   type Telephony,
 } from '../telephony.js';
 
-type Emit = (event: {
-  attemptId: string;
-  providerCallId: string;
-  status: ProviderCallStatus;
-}) => void;
+type Emit = (event: ProviderEvent) => void;
 
 const UNANSWERED_BY_LAST_DIGIT = new Map<string, ProviderCallStatus>([
   ['0', 'no_answer'],
@@ -62,10 +59,10 @@ export function createSimulatedTelephony(
       });
       return { providerCallId, status: 'ringing' };
     },
-    async lookup(providerCallId) {
+    async lookup({ providerCallId }) {
       const status = calls.get(providerCallId);
       if (!status) throw new TelephonyError('Unknown simulated call.', false);
-      return status;
+      return { status };
     },
     close() {
       for (const timer of timers) clearTimeout(timer);
